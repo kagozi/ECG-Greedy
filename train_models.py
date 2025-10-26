@@ -13,7 +13,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import fbeta_score, roc_auc_score, f1_score
+from sklearn.metrics import fbeta_score, roc_auc_score, f1_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 from tqdm import tqdm
 from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTransformerEarlyFusion, SwinTransformerLateFusion, EfficientNetECG
 
@@ -108,6 +110,33 @@ class CWTDataset(Dataset):
 
     
 
+def plot_confusion_matrix_all_classes(y_true, y_pred, class_names, save_path=None, title="Confusion Matrix - All Classes"):
+    """
+    Plots a single confusion matrix showing all 5 classes together.
+    For multi-label classification, we convert to multi-class by taking the class with highest probability.
+    """
+    # Convert multi-label to multi-class by taking the class with highest probability
+    y_true_single = np.argmax(y_true, axis=1)
+    y_pred_single = np.argmax(y_pred, axis=1)
+    
+    cm = confusion_matrix(y_true_single, y_pred_single, labels=range(len(class_names)))
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", 
+                xticklabels=class_names, 
+                yticklabels=class_names,
+                cbar_kws={'shrink': 0.8})
+    plt.xlabel("Predicted", fontsize=12)
+    plt.ylabel("True", fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    
 def train_epoch(model, dataloader, criterion, optimizer, device, is_dual=False):
     """Train for one epoch"""
     model.train()
@@ -369,6 +398,18 @@ def train_model(config, metadata, device):
     print(f"  AUC:    {test_metrics['macro_auc']:.4f}")
     print(f"  F1:     {test_metrics['f1_macro']:.4f}")
     print(f"  F-beta: {test_metrics['f_beta_macro']:.4f}")
+    
+    try:
+        plot_confusion_matrix_all_classes(
+            test_labels, 
+            test_pred_optimal, 
+            metadata['classes'],
+            save_path=os.path.join(PROCESSED_PATH, f"confusion_matrix_{config['name']}.png"),
+            title=f"Confusion Matrix - {config['name']}"
+        )
+        print(f"✓ Confusion matrix saved: confusion_matrix_{config['name']}.png")
+    except Exception as e:
+        print(f"❌ Error generating confusion matrix: {e}")
     
     # Save results
     results = {
