@@ -24,7 +24,7 @@ from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTran
 PROCESSED_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/'
 WAVELETS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/'
 RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/results/'
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 EPOCHS = 30
 LR = 0.001
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
