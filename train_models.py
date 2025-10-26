@@ -24,8 +24,8 @@ from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTran
 PROCESSED_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/'
 WAVELETS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/'
 RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/results/'
-BATCH_SIZE = 16
-EPOCHS = 50
+BATCH_SIZE = 32
+EPOCHS = 30
 LR = 0.001
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 NUM_WORKERS = 4
@@ -407,15 +407,15 @@ def main():
         {'mode': 'both', 'model': 'DualStream', 'name': 'DualStream-CNN-BCE', 'loss': 'bce'},
         {'mode': 'both', 'model': 'DualStream', 'name': 'DualStream-CNN-Focal', 'loss': 'focal'},
         
-        {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
-        {'mode': 'fusion', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        {'mode': 'fusion', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
+        # {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
+        # {'mode': 'fusion', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'fusion', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
         
-        {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
+        # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         
-        {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
 
     ]
     
