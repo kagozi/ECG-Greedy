@@ -179,45 +179,6 @@ class DualStreamCNN(nn.Module):
         combined = torch.cat([feat_scalo, feat_phaso], dim=1)
         return self.fusion_fc(combined)
 
-class ViTECG(nn.Module):
-    """Vision Transformer for ECG classification with 12-channel input"""
-    
-    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
-        super().__init__()
-        
-        # Channel adapter: 12 → 3
-        self.adapter = ChannelAdapter(strategy=adapter_strategy)
-        
-        # Load pretrained ViT-B/16
-        from torchvision.models import vit_b_16, ViT_B_16_Weights
-        
-        if pretrained:
-            weights = ViT_B_16_Weights.DEFAULT
-            self.backbone = vit_b_16(weights=weights)
-        else:
-            self.backbone = vit_b_16(weights=None)
-        
-        # Get number of features
-        num_features = self.backbone.heads.head.in_features
-        
-        # Replace head with custom classifier
-        self.backbone.heads.head = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(num_features, 512),
-            nn.ReLU(),
-            nn.LayerNorm(512),
-            nn.Dropout(dropout / 2),
-            nn.Linear(512, num_classes)
-        )
-        
-        n_params = sum(p.numel() for p in self.parameters())
-        print(f"  ViTECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
-    
-    def forward(self, x):
-        # x: (B, 12, H, W) → (B, 3, H, W)
-        x = self.adapter(x)
-        return self.backbone(x)
-
 
 class SwinTransformerECG(nn.Module):
     """
@@ -424,3 +385,131 @@ class EfficientNetECG(nn.Module):
         output = self.classifier(features)
         return output
     
+    
+
+class ViTECG(nn.Module):
+    """Vision Transformer for ECG classification with 12-channel input"""
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
+        super().__init__()
+        
+        # Channel adapter: 12 → 3
+        self.adapter = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Load pretrained ViT-B/16
+        from torchvision.models import vit_b_16, ViT_B_16_Weights
+        
+        if pretrained:
+            weights = ViT_B_16_Weights.DEFAULT
+            self.backbone = vit_b_16(weights=weights)
+        else:
+            self.backbone = vit_b_16(weights=None)
+        
+        # Get number of features
+        num_features = self.backbone.heads.head.in_features
+        
+        # Replace head with custom classifier
+        self.backbone.heads.head = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.LayerNorm(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  ViTECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, x):
+        # x: (B, 12, H, W) → (B, 3, H, W)
+        x = self.adapter(x)
+        return self.backbone(x)
+    
+    
+class EfficientNetFusionECG(nn.Module):
+    """
+    EfficientNet for ECG fusion:
+    Input: 24 channels (12 Scalo + 12 Phaso)
+    Early fusion → 3 channels for pretrained backbone
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='efficientnet_b2'):
+        super().__init__()
+        
+        # Fusion adapter: 24 → 3
+        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        
+        # Load pretrained EfficientNet
+        self.backbone = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.backbone.num_features
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+
+        print(f"✅ EfficientNetFusionECG: Early Fusion Enabled ({num_features} features)")
+    
+    def forward(self, x):
+        # x: (B, 24, H, W)
+        x = self.adapter(x)
+        features = self.backbone(x)
+        output = self.classifier(features)
+        return output
+
+
+
+class ViTFusionECG(nn.Module):
+    """
+    ViT-B/16 Fusion Model:
+    Input: 24 channels (12 Scalo + 12 Phaso)
+    Early fusion → 3 channels
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True):
+        super().__init__()
+        
+        # Fusion adapter: 24 → 3
+        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        
+        # Load pretrained ViT
+        from torchvision.models import vit_b_16, ViT_B_16_Weights
+        
+        if pretrained:
+            weights = ViT_B_16_Weights.DEFAULT
+            self.backbone = vit_b_16(weights=weights)
+        else:
+            self.backbone = vit_b_16(weights=None)
+        
+        num_features = self.backbone.heads.head.in_features
+        
+        # Replace head with classification block
+        self.backbone.heads.head = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.GELU(),
+            nn.LayerNorm(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        print(f"✅ ViTFusionECG: Early Fusion Enabled ({num_features} features)")
+    
+    def forward(self, x):
+        # x: (B, 24, H, W)
+        x = self.adapter(x)
+        return self.backbone(x)
+
