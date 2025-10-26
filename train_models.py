@@ -218,7 +218,7 @@ def train_model(config, metadata, device):
     
     # Create datasets
     mode = config['mode']
-    is_dual = (config['model'] == 'DualStream')
+    is_dual = (config['model'] == 'DualStream') or (mode == 'both')
     
     print(f"\nCreating datasets (mode={mode})...")
     train_dataset = CWTDataset(
