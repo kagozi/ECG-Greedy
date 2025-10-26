@@ -11,7 +11,7 @@ import numpy as np
 import pywt
 from scipy.ndimage import zoom
 from tqdm import tqdm
-
+from numpy.lib.format import open_memmap
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -129,55 +129,80 @@ class CWTGenerator:
             np.stack(scalograms, axis=0),
             np.stack(phasograms, axis=0)
         )
-    
+        
     def process_dataset_batched(self, X, output_scalo_path, output_phaso_path, batch_size=100):
-        """Memory-safe processing of the whole dataset"""
-        
         n_samples = len(X)
-        n_batches = (n_samples + batch_size - 1) // batch_size
-        print(f"\nProcessing {n_samples} samples in {n_batches} batches...")
-        
         shape = (n_samples, 12, self.image_size, self.image_size)
-        
-        # ✅ FIX: Create memmap with proper format
-        scalograms = np.memmap(
-            output_scalo_path, 
-            dtype='float32', 
-            mode='w+', 
-            shape=shape
-        )
-        phasograms = np.memmap(
-            output_phaso_path, 
-            dtype='float32', 
-            mode='w+', 
-            shape=shape
-        )
-        
-        for batch_idx in tqdm(range(n_batches), desc="Processing batches"):
-            start, end = batch_idx * batch_size, min((batch_idx + 1) * batch_size, n_samples)
-            
-            for i in range(start, end):
+
+        # create proper .npy memmaps with headers
+        scalograms = open_memmap(output_scalo_path, mode='w+', dtype='float32', shape=shape)
+        phasograms = open_memmap(output_phaso_path, mode='w+', dtype='float32', shape=shape)
+
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        for b in tqdm(range(n_batches), desc="Processing batches"):
+            s, e = b * batch_size, min((b + 1) * batch_size, n_samples)
+            for i in range(s, e):
                 scalo, phaso = self.process_12_lead_ecg(X[i])
                 scalograms[i] = scalo
                 phasograms[i] = phaso
+            scalograms.flush(); phasograms.flush()
+
+        del scalograms, phasograms  # ensure buffers are written
+
+        # verify
+        scalograms_view = np.load(output_scalo_path, mmap_mode='r')       # OK now
+        phasograms_view = np.load(output_phaso_path, mmap_mode='r')
+        print("✓", scalograms_view.shape, scalograms_view.dtype)
+        print("✓", phasograms_view.shape, phasograms_view.dtype)
+    
+    # def process_dataset_batched(self, X, output_scalo_path, output_phaso_path, batch_size=100):
+    #     """Memory-safe processing of the whole dataset"""
+        
+    #     n_samples = len(X)
+    #     n_batches = (n_samples + batch_size - 1) // batch_size
+    #     print(f"\nProcessing {n_samples} samples in {n_batches} batches...")
+        
+    #     shape = (n_samples, 12, self.image_size, self.image_size)
+        
+    #     # ✅ FIX: Create memmap with proper format
+    #     scalograms = np.memmap(
+    #         output_scalo_path, 
+    #         dtype='float32', 
+    #         mode='w+', 
+    #         shape=shape
+    #     )
+    #     phasograms = np.memmap(
+    #         output_phaso_path, 
+    #         dtype='float32', 
+    #         mode='w+', 
+    #         shape=shape
+    #     )
+        
+    #     for batch_idx in tqdm(range(n_batches), desc="Processing batches"):
+    #         start, end = batch_idx * batch_size, min((batch_idx + 1) * batch_size, n_samples)
             
-            scalograms.flush()
-            phasograms.flush()
+    #         for i in range(start, end):
+    #             scalo, phaso = self.process_12_lead_ecg(X[i])
+    #             scalograms[i] = scalo
+    #             phasograms[i] = phaso
+            
+    #         scalograms.flush()
+    #         phasograms.flush()
         
-        # ✅ CRITICAL: Delete memmap objects before they're garbage collected
-        # This ensures data is written properly
-        del scalograms
-        del phasograms
+    #     # ✅ CRITICAL: Delete memmap objects before they're garbage collected
+    #     # This ensures data is written properly
+    #     del scalograms
+    #     del phasograms
         
-        print(f"✅ Saved scalograms → {output_scalo_path}")
-        print(f"✅ Saved phasograms → {output_phaso_path}")
+    #     print(f"✅ Saved scalograms → {output_scalo_path}")
+    #     print(f"✅ Saved phasograms → {output_phaso_path}")
         
-        # ✅ VERIFY the files can be loaded
-        print(f"  Verifying files...")
-        test_scalo = np.load(output_scalo_path, mmap_mode='r')
-        test_phaso = np.load(output_phaso_path, mmap_mode='r')
-        print(f"  ✓ Scalograms: {test_scalo.shape}, {test_scalo.dtype}")
-        print(f"  ✓ Phasograms: {test_phaso.shape}, {test_phaso.dtype}")
+    #     # ✅ VERIFY the files can be loaded
+    #     print(f"  Verifying files...")
+    #     test_scalo = np.load(output_scalo_path, mmap_mode='r')
+    #     test_phaso = np.load(output_phaso_path, mmap_mode='r')
+    #     print(f"  ✓ Scalograms: {test_scalo.shape}, {test_scalo.dtype}")
+    #     print(f"  ✓ Phasograms: {test_phaso.shape}, {test_phaso.dtype}")
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
