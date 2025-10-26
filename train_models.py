@@ -302,9 +302,9 @@ def train_model(config, metadata, device):
     elif config['model'] == 'EfficientNetECG':
         model = EfficientNetECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'ViTFusionECG':
-        model = ViTFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+        model = ViTFusionECG(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True)
     else:
         raise ValueError(f"Unknown model: {config['model']}")
 
