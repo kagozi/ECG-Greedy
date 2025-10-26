@@ -74,7 +74,6 @@ class CWTDataset(Dataset):
             labels: (N, num_classes) numpy array
             mode: 'scalogram', 'phasogram', 'both', or 'fusion'
         """
-        # Load with allow_pickle=True to handle different save formats
         self.scalograms = np.load(scalo_path, mmap_mode='r')
         self.phasograms = np.load(phaso_path, mmap_mode='r')
         self.labels = torch.FloatTensor(labels)
