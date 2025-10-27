@@ -687,6 +687,7 @@ from models import (
     SwinTransformerEarlyFusion, SwinTransformerLateFusion,
     EfficientNetECG, ViTFusionECG, EfficientNetFusionECG
 )
+from benchmark import XResNet1d101, load_ptbxl_dataset, aggregate_diagnostic_labels, preprocess_signals, prepare_labels
 
 # ============================================================================
 # CONFIGURATION
@@ -696,6 +697,7 @@ PROCESSED_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/'
 WAVELETS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/'
 RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/cwt/processed_wavelets/results/'
 BASELINE_RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/results/'
+DATA_PATH = '../datasets/ECG/'
 ENSEMBLE_PATH = os.path.join(RESULTS_PATH, 'ensemble_results/')
 BATCH_SIZE = 8
 NUM_WORKERS = 4
@@ -707,6 +709,8 @@ print("="*80)
 print("CONFUSION MATRICES & ENSEMBLE ANALYSIS (with ResNet1D Baseline)")
 print("="*80)
 print(f"Device: {DEVICE}")
+
+
 
 # ============================================================================
 # DATASET CLASSES
@@ -751,118 +755,6 @@ class ECGDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
-
-# ============================================================================
-# RESNET1D BASELINE MODEL ARCHITECTURE
-# ============================================================================
-
-def drop_path(x, drop_prob: float = 0.0, training: bool = False):
-    if drop_prob == 0. or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
-    if keep_prob > 0.0:
-        random_tensor.div_(keep_prob)
-    return x * random_tensor
-
-class BasicBlock1d(nn.Module):
-    """Basic ResNet block for 1D signals"""
-    expansion = 1
-    
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, drop_rate=0.0):
-        super().__init__()
-        
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size,
-                               stride=stride, padding=kernel_size//2, bias=False)
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size,
-                               stride=1, padding=kernel_size//2, bias=False)
-        self.bn2 = nn.BatchNorm1d(out_channels)
-        
-        self.drop_rate = drop_rate
-        
-        self.downsample = None
-        if stride != 1 or in_channels != out_channels:
-            self.downsample = nn.Sequential(
-                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm1d(out_channels)
-            )
-    
-    def forward(self, x):
-        identity = x
-        
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        
-        out = self.conv2(out)
-        out = self.bn2(out)
-        
-        out = drop_path(out, self.drop_rate, self.training)
-        
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        
-        out += identity
-        out = self.relu(out)
-        
-        return out
-
-class XResNet1d101(nn.Module):
-    """XResNet1d-101 architecture for baseline"""
-    
-    def __init__(self, input_channels=12, num_classes=5, base_filters=64, stem_ks=7, block_ks=3, drop_rate=0.0):
-        super().__init__()
-        
-        self.in_channels = base_filters
-        
-        self.stem = nn.Sequential(
-            nn.Conv1d(input_channels, base_filters, kernel_size=stem_ks, stride=2, 
-                     padding=stem_ks//2, bias=False),
-            nn.BatchNorm1d(base_filters),
-            nn.ReLU(inplace=True),
-            nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
-        )
-        
-        self.layer1 = self._make_layer(base_filters, 3, stride=1, kernel_size=block_ks, drop_rate=drop_rate)
-        self.layer2 = self._make_layer(base_filters*2, 4, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
-        self.layer3 = self._make_layer(base_filters*4, 23, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
-        self.layer4 = self._make_layer(base_filters*8, 3, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
-        
-        self.avgpool = nn.AdaptiveAvgPool1d(1)
-        self.maxpool = nn.AdaptiveMaxPool1d(1)
-        self.head_drop = nn.Dropout(0.05)
-        self.fc = nn.Linear(base_filters*8*2, num_classes)
-    
-    def _make_layer(self, out_channels, num_blocks, stride, kernel_size, drop_rate):
-        layers = []
-        layers.append(BasicBlock1d(self.in_channels, out_channels, stride, kernel_size, drop_rate))
-        self.in_channels = out_channels
-        
-        for _ in range(1, num_blocks):
-            layers.append(BasicBlock1d(self.in_channels, out_channels, kernel_size=kernel_size, drop_rate=drop_rate))
-        
-        return nn.Sequential(*layers)
-    
-    def forward(self, x):
-        x = self.stem(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        
-        x_avg = self.avgpool(x)
-        x_max = self.maxpool(x)
-        x = torch.cat([x_avg, x_max], dim=1)
-        
-        x = x.flatten(1)
-        x = self.head_drop(x)
-        x = self.fc(x)
-        
-        return x
 
 # ============================================================================
 # MODEL LOADING UTILITIES
@@ -1446,7 +1338,28 @@ def plot_model_comparison(model_results, ensemble_results, metadata):
 
 def main():
     print("\n[Step 1] Loading metadata and test data...")
+        # Step 1: Load data
+    print("\n[1/8] Loading PTB-XL dataset...")
+    X, Y = load_ptbxl_dataset(DATA_PATH, PROCESSED_PATH, sampling_rate=100)
     
+    # Step 2: Process labels
+    print("\n[2/8] Processing labels...")
+    Y = aggregate_diagnostic_labels(Y, DATA_PATH + 'scp_statements.csv')
+    X, Y, y, mlb = prepare_labels(X, Y, min_samples=0)
+    
+    # Step 3: Split data (folds 1-8: train, 9: val, 10: test)
+    print("\n[3/8] Splitting data...")
+    X_train = X[Y.strat_fold <= 8]
+    
+    X_val = X[Y.strat_fold == 9]
+    
+    X_test = X[Y.strat_fold == 10]
+    y_test = y[Y.strat_fold == 10]
+    
+    
+    # Step 4: Preprocess
+    print("\n[4/8] Preprocessing signals...")
+    X_train, X_val, X_test, scaler = preprocess_signals(X_train, X_val, X_test)
     # Load metadata
     with open(os.path.join(PROCESSED_PATH, 'metadata.pkl'), 'rb') as f:
         metadata = pickle.load(f)
@@ -1459,13 +1372,11 @@ def main():
     y_test = np.load(os.path.join(PROCESSED_PATH, 'y_test.npy'))
     
     # Load raw test signals for ResNet1D baseline
-    print("\nLoading raw test signals for ResNet1D baseline...")
-    X_test_raw = np.load(os.path.join(PROCESSED_PATH, 'X_test_scaled.npy'))
     
-    print(f"  Raw signals shape: {X_test_raw.shape}")
+    print(f"  Raw signals shape: {X_test.shape}")
     
     # Evaluate all models (CWT + ResNet1D baseline)
-    model_results, y_true = evaluate_all_models(metadata, X_test_raw, y_test)
+    model_results, y_true = evaluate_all_models(metadata, X_test, y_test)
     
     if not model_results:
         print("\n❌ No models to evaluate!")

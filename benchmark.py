@@ -429,7 +429,7 @@ class BCEWithLogitsLossSmoothed(nn.Module):
 
 def main():
     # Configuration
-    DATA_PATH = '../datasets/ECG/'  # UPDATE THIS
+    DATA_PATH = '../datasets/ECG/' 
     PROCESSED_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/'
     RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/results/'
     SAMPLING_RATE = 100
