@@ -427,89 +427,157 @@ class ViTECG(nn.Module):
         return self.backbone(x)
     
     
-class EfficientNetFusionECG(nn.Module):
+# ============================================================================
+# ViT LATE FUSION
+# ============================================================================
+
+class ViTLateFusion(nn.Module):
     """
-    EfficientNet for ECG fusion:
-    Input: 24 channels (12 Scalo + 12 Phaso)
-    Early fusion → 3 channels for pretrained backbone
+    Vision Transformer with late fusion.
+    Two separate backbones (one for scalogram, one for phasogram)
+    with feature-level fusion.
     """
     
-    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
-                 model_name='efficientnet_b2'):
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
         super().__init__()
         
-        # Fusion adapter: 24 → 3
-        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        from torchvision.models import vit_b_16, ViT_B_16_Weights
         
-        # Load pretrained EfficientNet
-        self.backbone = timm.create_model(
-            model_name,
-            pretrained=pretrained,
-            num_classes=0,
-            in_chans=3
+        # Two separate channel adapters
+        self.adapter_scalo = ChannelAdapter(strategy=adapter_strategy)
+        self.adapter_phaso = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Two separate ViT backbones
+        if pretrained:
+            weights = ViT_B_16_Weights.DEFAULT
+            self.backbone_scalogram = vit_b_16(weights=weights)
+            self.backbone_phasogram = vit_b_16(weights=weights)
+        else:
+            self.backbone_scalogram = vit_b_16(weights=None)
+            self.backbone_phasogram = vit_b_16(weights=None)
+        
+        # Get number of features from ViT
+        num_features = self.backbone_scalogram.heads.head.in_features
+        
+        # Remove classification heads (we'll add our own)
+        self.backbone_scalogram.heads.head = nn.Identity()
+        self.backbone_phasogram.heads.head = nn.Identity()
+        
+        # Fusion layer
+        self.fusion = nn.Sequential(
+            nn.Linear(num_features * 2, 1024),
+            nn.ReLU(),
+            nn.LayerNorm(1024),
+            nn.Dropout(dropout)
         )
-        
-        num_features = self.backbone.num_features
         
         # Classification head
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(num_features, 512),
+            nn.Linear(1024, 512),
             nn.ReLU(),
-            nn.BatchNorm1d(512),
-            nn.Dropout(dropout / 2),
-            nn.Linear(512, num_classes)
-        )
-
-        print(f"✅ EfficientNetFusionECG: Early Fusion Enabled ({num_features} features)")
-    
-    def forward(self, x):
-        # x: (B, 24, H, W)
-        x = self.adapter(x)
-        features = self.backbone(x)
-        output = self.classifier(features)
-        return output
-
-
-
-class ViTFusionECG(nn.Module):
-    """
-    ViT-B/16 Fusion Model:
-    Input: 24 channels (12 Scalo + 12 Phaso)
-    Early fusion → 3 channels
-    """
-    
-    def __init__(self, num_classes=5, dropout=0.3, pretrained=True):
-        super().__init__()
-        
-        # Fusion adapter: 24 → 3
-        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
-        
-        # Load pretrained ViT
-        from torchvision.models import vit_b_16, ViT_B_16_Weights
-        
-        if pretrained:
-            weights = ViT_B_16_Weights.DEFAULT
-            self.backbone = vit_b_16(weights=weights)
-        else:
-            self.backbone = vit_b_16(weights=None)
-        
-        num_features = self.backbone.heads.head.in_features
-        
-        # Replace head with classification block
-        self.backbone.heads.head = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(num_features, 512),
-            nn.GELU(),
             nn.LayerNorm(512),
             nn.Dropout(dropout / 2),
             nn.Linear(512, num_classes)
         )
         
-        print(f"✅ ViTFusionECG: Early Fusion Enabled ({num_features} features)")
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  ViTLateFusion: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
     
-    def forward(self, x):
-        # x: (B, 24, H, W)
-        x = self.adapter(x)
-        return self.backbone(x)
+    def forward(self, scalogram, phasogram):
+        # scalogram: (B, 12, H, W)
+        # phasogram: (B, 12, H, W)
+        
+        # Adapt channels
+        scalo_3ch = self.adapter_scalo(scalogram)  # (B, 3, H, W)
+        phaso_3ch = self.adapter_phaso(phasogram)  # (B, 3, H, W)
+        
+        # Extract features separately
+        features_scalo = self.backbone_scalogram(scalo_3ch)
+        features_phaso = self.backbone_phasogram(phaso_3ch)
+        
+        # Concatenate and fuse
+        combined_features = torch.cat([features_scalo, features_phaso], dim=1)
+        fused = self.fusion(combined_features)
+        output = self.classifier(fused)
+        
+        return output
+
+
+# ============================================================================
+# EFFICIENTNET LATE FUSION
+# ============================================================================
+
+class EfficientNetLateFusion(nn.Module):
+    """
+    EfficientNet with late fusion.
+    Two separate backbones (one for scalogram, one for phasogram)
+    with feature-level fusion.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='efficientnet_b2', adapter_strategy='learned'):
+        super().__init__()
+        
+        # Two separate channel adapters
+        self.adapter_scalo = ChannelAdapter(strategy=adapter_strategy)
+        self.adapter_phaso = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Two separate EfficientNet backbones
+        self.backbone_scalogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,  # Remove classifier
+            in_chans=3
+        )
+        
+        self.backbone_phasogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,  # Remove classifier
+            in_chans=3
+        )
+        
+        # Get number of features
+        num_features = self.backbone_scalogram.num_features
+        
+        # Fusion layer
+        self.fusion = nn.Sequential(
+            nn.Linear(num_features * 2, 1024),
+            nn.ReLU(),
+            nn.BatchNorm1d(1024),
+            nn.Dropout(dropout)
+        )
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  EfficientNetLateFusion: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, scalogram, phasogram):
+        # scalogram: (B, 12, H, W)
+        # phasogram: (B, 12, H, W)
+        
+        # Adapt channels
+        scalo_3ch = self.adapter_scalo(scalogram)  # (B, 3, H, W)
+        phaso_3ch = self.adapter_phaso(phasogram)  # (B, 3, H, W)
+        
+        # Extract features separately
+        features_scalo = self.backbone_scalogram(scalo_3ch)
+        features_phaso = self.backbone_phasogram(phaso_3ch)
+        
+        # Concatenate and fuse
+        combined_features = torch.cat([features_scalo, features_phaso], dim=1)
+        fused = self.fusion(combined_features)
+        output = self.classifier(fused)
+        
+        return output
 

@@ -17,7 +17,7 @@ from sklearn.metrics import fbeta_score, roc_auc_score, f1_score, confusion_matr
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
-from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTransformerEarlyFusion, SwinTransformerLateFusion, EfficientNetECG, ViTFusionECG, EfficientNetFusionECG
+from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTransformerEarlyFusion, ViTLateFusion, EfficientNetLateFusion, SwinTransformerLateFusion
 
 # ============================================================================
 # CONFIGURATION
@@ -299,12 +299,10 @@ def train_model(config, metadata, device):
         model = SwinTransformerEarlyFusion(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'SwinTransformerLateFusion':
         model = SwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
-    elif config['model'] == 'EfficientNetECG':
-        model = EfficientNetECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
-    elif config['model'] == 'ViTFusionECG':
-        model = ViTFusionECG(num_classes=num_classes, pretrained=True)
-    elif config['model'] == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'ViTLateFusion':
+        model = ViTLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'EfficientNetLateFusion':
+        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     else:
         raise ValueError(f"Unknown model: {config['model']}")
 
@@ -460,12 +458,8 @@ def main():
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
                 
-        {'mode': 'fusion', 'model': 'ViTFusionECG', 'name': 'ViTFusionECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        {'mode': 'fusion', 'model': 'EfficientNetFusionECG', 'name': 'EfficientNetFusionECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        
-                
-        {'mode': 'fusion', 'model': 'ViTFusionECG', 'name': 'ViTFusionECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
-        {'mode': 'fusion', 'model': 'EfficientNetFusionECG', 'name': 'EfficientNetFusionECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
+        {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        {'mode': 'both', 'model': 'EfficientNetLateFusion', 'name': 'EfficientNetLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         
         # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
