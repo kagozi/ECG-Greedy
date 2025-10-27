@@ -134,11 +134,21 @@ def apply_standardizer(X, ss):
 # STEP 4: XRESNET1D ARCHITECTURE (PURE PYTORCH)
 # ============================================================================
 
+def drop_path(x, drop_prob: float = 0.0, training: bool = False):
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    if keep_prob > 0.0:
+        random_tensor.div_(keep_prob)
+    return x * random_tensor
+
 class BasicBlock1d(nn.Module):
     """Basic ResNet block for 1D signals"""
     expansion = 1
     
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3):
+    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, drop_rate=0.0):
         super().__init__()
         
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size,
@@ -149,6 +159,8 @@ class BasicBlock1d(nn.Module):
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size,
                                stride=1, padding=kernel_size//2, bias=False)
         self.bn2 = nn.BatchNorm1d(out_channels)
+        
+        self.drop_rate = drop_rate
         
         # Shortcut connection
         self.downsample = None
@@ -168,6 +180,8 @@ class BasicBlock1d(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
         
+        out = drop_path(out, self.drop_rate, self.training)
+        
         if self.downsample is not None:
             identity = self.downsample(x)
         
@@ -180,41 +194,42 @@ class BasicBlock1d(nn.Module):
 class XResNet1d101(nn.Module):
     """XResNet1d-101 architecture"""
     
-    def __init__(self, input_channels=12, num_classes=5, base_filters=64):
+    def __init__(self, input_channels=12, num_classes=5, base_filters=64, stem_ks=7, block_ks=3, drop_rate=0.0):
         super().__init__()
         
         self.in_channels = base_filters
         
         # Stem
         self.stem = nn.Sequential(
-            nn.Conv1d(input_channels, base_filters, kernel_size=7, stride=2, 
-                     padding=3, bias=False),
+            nn.Conv1d(input_channels, base_filters, kernel_size=stem_ks, stride=2, 
+                     padding=stem_ks//2, bias=False),
             nn.BatchNorm1d(base_filters),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
         )
         
         # ResNet blocks [3, 4, 23, 3] for ResNet-101
-        self.layer1 = self._make_layer(base_filters, 3, stride=1)
-        self.layer2 = self._make_layer(base_filters*2, 4, stride=2)
-        self.layer3 = self._make_layer(base_filters*4, 23, stride=2)
-        self.layer4 = self._make_layer(base_filters*8, 3, stride=2)
+        self.layer1 = self._make_layer(base_filters, 3, stride=1, kernel_size=block_ks, drop_rate=drop_rate)
+        self.layer2 = self._make_layer(base_filters*2, 4, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
+        self.layer3 = self._make_layer(base_filters*4, 23, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
+        self.layer4 = self._make_layer(base_filters*8, 3, stride=2, kernel_size=block_ks, drop_rate=drop_rate)
         
         # Head
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.maxpool = nn.AdaptiveMaxPool1d(1)
+        self.head_drop = nn.Dropout(0.05)
         self.fc = nn.Linear(base_filters*8*2, num_classes)  # *2 for concat pooling
     
-    def _make_layer(self, out_channels, num_blocks, stride):
+    def _make_layer(self, out_channels, num_blocks, stride, kernel_size, drop_rate):
         layers = []
         
         # First block may have stride > 1
-        layers.append(BasicBlock1d(self.in_channels, out_channels, stride))
+        layers.append(BasicBlock1d(self.in_channels, out_channels, stride, kernel_size, drop_rate))
         self.in_channels = out_channels
         
         # Remaining blocks
         for _ in range(1, num_blocks):
-            layers.append(BasicBlock1d(self.in_channels, out_channels))
+            layers.append(BasicBlock1d(self.in_channels, out_channels, kernel_size=kernel_size, drop_rate=drop_rate))
         
         return nn.Sequential(*layers)
     
@@ -232,6 +247,7 @@ class XResNet1d101(nn.Module):
         x = torch.cat([x_avg, x_max], dim=1)
         
         x = x.flatten(1)
+        x = self.head_drop(x)
         x = self.fc(x)
         
         return x
@@ -359,20 +375,26 @@ def plot_confusion_matrices(y_true, y_pred, class_names, save_path=None):
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
-    
+
 def plot_confusion_matrix_all_classes(y_true, y_pred, class_names, save_path=None, title="Confusion Matrix - All Classes"):
     """
-    Plots a single confusion matrix showing all 5 classes together.
-    For multi-label classification, we convert to multi-class by taking the class with highest probability.
+    Plots a single confusion matrix showing all classes together.
+    For multi-label classification, we need a different approach since multiple classes can be true.
     """
-    # Convert multi-label to multi-class by taking the class with highest probability
-    y_true_single = np.argmax(y_true, axis=1)
-    y_pred_single = np.argmax(y_pred, axis=1)
+    n_classes = len(class_names)
     
-    cm = confusion_matrix(y_true_single, y_pred_single, labels=range(len(class_names)))
+    # Create a combined confusion matrix that shows true vs predicted for all classes
+    # This approach shows how often each class was predicted vs actual
+    cm_combined = np.zeros((n_classes, n_classes))
+    
+    for true_idx in range(n_classes):
+        for pred_idx in range(n_classes):
+            # Count samples where true class is true_idx AND predicted class is pred_idx
+            count = np.sum((y_true[:, true_idx] == 1) & (y_pred[:, pred_idx] == 1))
+            cm_combined[true_idx, pred_idx] = count
     
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", 
+    sns.heatmap(cm_combined, annot=True, fmt=".0f", cmap="Blues", 
                 xticklabels=class_names, 
                 yticklabels=class_names,
                 cbar_kws={'shrink': 0.8})
@@ -386,19 +408,46 @@ def plot_confusion_matrix_all_classes(y_true, y_pred, class_names, save_path=Non
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
 
+# ADD THIS CLASS BEFORE main()
+class BCEWithLogitsLossSmoothed(nn.Module):
+    def __init__(self, pos_weight=None, smoothing=0.0):
+        super().__init__()
+        self.pos_weight = pos_weight
+        self.smoothing = smoothing
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction='none')
+
+    def forward(self, input, target):
+        if self.smoothing == 0.0:
+            return self.bce(input, target).mean()
+        target = target * (1 - self.smoothing) + self.smoothing / target.shape[1]
+        loss = self.bce(input, target)
+        return loss.mean()
+
 # ============================================================================
 # STEP 8: MAIN TRAINING PIPELINE
 # ============================================================================
 
 def main():
     # Configuration
-    DATA_PATH = '/kaggle/input/ptb-xl-dataset/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1/'  # UPDATE THIS
-    PROCESSED_PATH = '/kaggle/working/'
+    DATA_PATH = '../datasets/ECG/'  # UPDATE THIS
+    PROCESSED_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/'
+    RESULTS_PATH = '../santosh_lab/shared/KagoziA/wavelets/xresnet_baseline/results/'
     SAMPLING_RATE = 100
-    BATCH_SIZE = 64
-    EPOCHS = 50
+    BATCH_SIZE = 32
+    EPOCHS = 100
+    PROBE_EPOCHS = 10
     LR = 0.001
+    DROP_RATE = 0.2
+    WEIGHT_DECAY = 0.05
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    os.makedirs(RESULTS_PATH, exist_ok=True)
+    
+    if SAMPLING_RATE == 500:
+        stem_ks = 35
+        block_ks = 15
+    else:
+        stem_ks = 7
+        block_ks = 3
     
     print("="*80)
     print("XRESNET1D101 BENCHMARK REPLICATION")
@@ -406,7 +455,7 @@ def main():
     
     # Step 1: Load data
     print("\n[1/8] Loading PTB-XL dataset...")
-    X, Y = load_ptbxl_dataset(DATA_PATH, PROCESSED_PATH, sampling_rate=100)
+    X, Y = load_ptbxl_dataset(DATA_PATH, PROCESSED_PATH, sampling_rate=SAMPLING_RATE)
     
     # Step 2: Process labels
     print("\n[2/8] Processing labels...")
@@ -442,16 +491,51 @@ def main():
     
     # Step 6: Create model
     print("\n[6/8] Creating XResNet1d101 model...")
-    model = XResNet1d101(input_channels=12, num_classes=len(mlb.classes_)).to(DEVICE)
+    model = XResNet1d101(input_channels=12, num_classes=len(mlb.classes_), stem_ks=stem_ks, block_ks=block_ks, drop_rate=DROP_RATE).to(DEVICE)
     
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
-    
+    pos = np.sum(y_train, axis=0)
+    neg = len(y_train) - pos
+    pos_weight = neg / pos
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.FloatTensor(pos_weight).to(DEVICE))
+
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
     
-    # Step 7: Train
-    print("\n[7/8] Training model...")
+    # Linear probing phase
+    print("\n[6.5/8] Linear probing phase...")
+    for name, param in model.named_parameters():
+        if "fc" not in name:
+            param.requires_grad = False
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=PROBE_EPOCHS, eta_min=1e-5)
+    
+    for epoch in range(PROBE_EPOCHS):
+        print(f"\nProbe Epoch {epoch+1}/{PROBE_EPOCHS}")
+        
+        # Train
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, DEVICE)
+        
+        # Validate
+        val_loss, val_preds, val_labels = validate(model, val_loader, criterion, DEVICE)
+        
+        # Compute metrics
+        thresholds = find_optimal_thresholds(val_labels, val_preds)
+        val_pred_binary = apply_thresholds(val_preds, thresholds)
+        val_metrics = compute_metrics(val_labels, val_pred_binary, val_preds)
+        
+        print(f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(f"Val AUC: {val_metrics['macro_auc']:.4f} | Val F-beta: {val_metrics['f_beta_macro']:.4f}")
+        
+        scheduler.step()
+    
+    # Step 7: Train (full fine-tune)
+    print("\n[7/8] Full fine-tune...")
+    for param in model.parameters():
+        param.requires_grad = True
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
+    
     best_val_auc = 0.0
     
     for epoch in range(EPOCHS):
@@ -474,14 +558,14 @@ def main():
         # Save best model
         if val_metrics['macro_auc'] > best_val_auc:
             best_val_auc = val_metrics['macro_auc']
-            torch.save(model.state_dict(), 'best_xresnet1d101.pth')
+            torch.save(model.state_dict(),  os.path.join(RESULTS_PATH,'best_xresnet1d101.pth'))
             print(f"✓ Saved best model (AUC: {best_val_auc:.4f})")
         
-        scheduler.step(val_loss)
+        scheduler.step()
     
     # Step 8: Test
     print("\n[8/8] Testing on test set...")
-    model.load_state_dict(torch.load('best_xresnet1d101.pth'))
+    model.load_state_dict(torch.load(os.path.join(RESULTS_PATH,'best_xresnet1d101.pth')))
     test_loss, test_preds, test_labels = validate(model, test_loader, criterion, DEVICE)
     
     # Optimize thresholds on validation set
@@ -500,9 +584,10 @@ def main():
     
     # Plot confusion matrices
     plot_confusion_matrices(test_labels, test_pred_binary, mlb.classes_, 
-                           save_path='confusion_matrices.png')
-    
-    print("\n✓ Training complete!")
+                           save_path=os.path.join(RESULTS_PATH,'resnet_1d_confusion_matrices.png'))
+    plot_confusion_matrix_all_classes(test_labels, test_pred_binary, mlb.classes_, 
+                       save_path=os.path.join(RESULTS_PATH,'resnet_1d_confusion_confusion_matrix_combined.png'), 
+                       title="Confusion Matrix - All Classes")
 
 if __name__ == '__main__':
     main()
