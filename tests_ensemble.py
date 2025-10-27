@@ -5,6 +5,7 @@
 # 1. Generate confusion matrices for all trained models
 # 2. Create ensemble predictions
 # 3. Compare all models visually
+
 import os
 import json
 import pickle
@@ -116,18 +117,37 @@ def load_model_from_config(config, num_classes):
 # ============================================================================
 
 @torch.no_grad()
-def get_predictions(model, dataloader, is_dual=False):
+def get_predictions(model, dataloader, config):
     """Get model predictions and probabilities"""
     model.eval()
     all_preds = []
     all_labels = []
     
+    mode = config['mode']
+    is_dual = (config['model'] == 'DualStream') or (config['mode'] == 'both')
+    
     for batch in tqdm(dataloader, desc="Getting predictions", leave=False):
-        if is_dual:
+        # Handle different batch formats
+        if isinstance(batch[0], tuple) or isinstance(batch[0], list):
+            # Mode is 'both' - unpack tuple
             (x1, x2), y = batch
             x1, x2 = x1.to(DEVICE), x2.to(DEVICE)
-            outputs = model(x1, x2)
+            if is_dual:
+                outputs = model(x1, x2)
+            else:
+                # Model expects single input, use appropriate one
+                if mode == 'scalogram':
+                    outputs = model(x1)
+                elif mode == 'phasogram':
+                    outputs = model(x2)
+                elif mode == 'fusion':
+                    # Concatenate for fusion models
+                    x_fused = torch.cat([x1, x2], dim=1)
+                    outputs = model(x_fused)
+                else:
+                    outputs = model(x1)
         else:
+            # Single input (scalogram, phasogram, or fusion)
             x, y = batch
             x = x.to(DEVICE)
             outputs = model(x)
@@ -276,7 +296,7 @@ def compute_all_metrics(y_true, y_pred, y_scores):
 # MAIN EVALUATION PIPELINE
 # ============================================================================
 
-def evaluate_all_models(metadata, test_loader):
+def evaluate_all_models(metadata):
     """Evaluate all trained models and generate confusion matrices"""
     
     print("\n[1/3] Loading all trained models...")
@@ -291,6 +311,7 @@ def evaluate_all_models(metadata, test_loader):
     print(f"Found {len(result_files)} trained models")
     
     all_model_results = {}
+    y_true = None
     
     for result_file in result_files:
         model_name = result_file.replace('results_', '').replace('.json', '')
@@ -317,9 +338,26 @@ def evaluate_all_models(metadata, test_loader):
         model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
         
+        # Create dataset with appropriate mode for this model
+        y_test = np.load(os.path.join(PROCESSED_PATH, 'y_test.npy'))
+        
+        # Determine the mode needed for this model
+        dataset_mode = config['mode']
+        
+        test_dataset = CWTDataset(
+            os.path.join(WAVELETS_PATH, 'test_scalograms.npy'),
+            os.path.join(WAVELETS_PATH, 'test_phasograms.npy'),
+            y_test,
+            mode=dataset_mode
+        )
+        
+        test_loader = DataLoader(
+            test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+            num_workers=NUM_WORKERS, pin_memory=True
+        )
+        
         # Get predictions
-        is_dual = (config['model'] == 'DualStream') or (config['mode'] == 'both')
-        y_scores, y_true = get_predictions(model, test_loader, is_dual)
+        y_scores, y_true = get_predictions(model, test_loader, config)
         y_pred = apply_thresholds(y_scores, optimal_thresholds)
         
         # Compute metrics
@@ -529,24 +567,8 @@ def main():
     print(f"  Classes: {metadata['num_classes']} - {metadata['classes']}")
     print(f"  Test samples: {metadata['test_size']}")
     
-    # Load test labels
-    y_test = np.load(os.path.join(PROCESSED_PATH, 'y_test.npy'))
-    
-    # Create test dataset (mode='both' to handle all model types)
-    test_dataset = CWTDataset(
-        os.path.join(WAVELETS_PATH, 'test_scalograms.npy'),
-        os.path.join(WAVELETS_PATH, 'test_phasograms.npy'),
-        y_test,
-        mode='both'
-    )
-    
-    test_loader = DataLoader(
-        test_dataset, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=NUM_WORKERS, pin_memory=True
-    )
-    
-    # Evaluate all models
-    model_results, y_true = evaluate_all_models(metadata, test_loader)
+    # Evaluate all models (creates dataloaders internally per model)
+    model_results, y_true = evaluate_all_models(metadata)
     
     if not model_results:
         print("\n❌ No models to evaluate!")
@@ -573,6 +595,14 @@ def main():
     # Top-3 weighted ensemble
     if len(model_results) >= 3:
         metrics, name = create_ensemble(model_results, y_true, metadata, method='weighted', top_k=3)
+        ensemble_results.append((name, metrics))
+    
+    # Top-5 ensembles if we have enough models
+    if len(model_results) >= 5:
+        metrics, name = create_ensemble(model_results, y_true, metadata, method='average', top_k=5)
+        ensemble_results.append((name, metrics))
+        
+        metrics, name = create_ensemble(model_results, y_true, metadata, method='weighted', top_k=5)
         ensemble_results.append((name, metrics))
     
     # Create comparison visualizations
