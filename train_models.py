@@ -457,9 +457,9 @@ def main():
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
-                
-        {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         {'mode': 'both', 'model': 'EfficientNetLateFusion', 'name': 'EfficientNetLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+
         
         # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
