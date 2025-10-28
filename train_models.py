@@ -21,7 +21,7 @@ from models import (CWT2DCNN, DualStreamCNN, ViTECG,
                     SwinTransformerECG, SwinTransformerEarlyFusion, 
                     ViTLateFusion, EfficientNetLateFusion, 
                     SwinTransformerLateFusion, HybridSwinTransformerECG
-                    ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion)
+                    ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion, DistributionAwareFocalLoss)
 
 # ============================================================================
 # CONFIGURATION
@@ -322,19 +322,72 @@ def train_model(config, metadata, device):
     # Training setup
     loss_type = config.get('loss', 'bce')
     if loss_type == 'focal':
-        criterion = FocalLoss(alpha=0.25, gamma=2.0)
-        print(f"Using Focal Loss")
+        # Option 1: Standard Focal Loss (simple, works well)
+        criterion = FocalLoss(
+            gamma=2.0, 
+            alpha=0.25, 
+            task_type='multi-label',
+            reduction='mean'
+        )
+        print(f"Using Focal Loss (gamma={2.0}, alpha={0.25})")
+        
+    elif loss_type == 'focal_weighted':
+        # Option 2: Distribution-Aware Focal Loss (best for imbalanced data)
+        # Calculate class weights
+        y_train = np.load(os.path.join(PROCESSED_PATH, 'y_train.npy'))
+        class_counts = y_train.sum(axis=0)
+        total_samples = len(y_train)
+        class_weights = torch.FloatTensor(total_samples / (len(metadata['classes']) * class_counts))
+        
+        criterion = DistributionAwareFocalLoss(
+            class_weights=class_weights,
+            gamma=2.0,
+            alpha=0.25,
+            reduction='mean'
+        )
+        print(f"Using Distribution-Aware Focal Loss")
+        print(f"  Class weights: {class_weights.numpy()}")
+        
+    elif loss_type == 'focal_adaptive':
+        # Option 3: Adaptive Focal Loss (gamma varies per class difficulty)
+        # Higher gamma for harder classes
+        y_train = np.load(os.path.join(PROCESSED_PATH, 'y_train.npy'))
+        class_counts = y_train.sum(axis=0)
+        
+        # Adaptive gamma: harder (rarer) classes get higher gamma
+        gamma_per_class = 2.0 + (1.0 - class_counts / class_counts.max())
+        
+        criterion = FocalLoss(
+            gamma=2.5,  # Higher default gamma
+            alpha=0.25,
+            task_type='multi-label',
+            reduction='mean'
+        )
+        print(f"Using Adaptive Focal Loss (gamma={2.5})")
+        
     else:
+        # Fallback to BCE
         criterion = nn.BCEWithLogitsLoss()
         print(f"Using BCE Loss")
+    
         
         # ✅ FIXED: Proper learning rates
-    if 'Swin' in config['model']:
-        lr = 3e-5  # ✅ Lower for Swin
+      # Fine-tuned learning rates for different architectures
+    if 'Swin' in config['model'] or 'HybridSwin' in config['model']:
+        lr = 3e-5  # Lower for Swin Transformer (large model)
         print(f"Using LR={lr} (Swin Transformer)")
+    elif 'ViT' in config['model']:
+        lr = 5e-5  # Slightly higher for ViT
+        print(f"Using LR={lr} (Vision Transformer)")
+    elif 'EfficientNet' in config['model']:
+        lr = 1e-4  # Higher for EfficientNet (smaller model)
+        print(f"Using LR={lr} (EfficientNet)")
+    elif 'Enhanced' in config['model'] or 'XResNet' in config['model']:
+        lr = 1e-3  # Standard for CNN-based models
+        print(f"Using LR={lr} (CNN-based)")
     else:
-        lr = LR
-        print(f"Using LR={lr}")
+        lr = LR  # Default
+        print(f"Using LR={lr} (default)")
         
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -474,9 +527,12 @@ def main():
         # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
          
         # Hybrid Swin variants
-        {'mode': 'scalogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal'},
-        {'mode': 'fusion', 'model': 'HybridSwinTransformerEarlyFusion', 'name': 'EarlyFusion-HybridSwin', 'loss': 'focal'},
-        {'mode': 'both', 'model': 'HybridSwinTransformerLateFusion', 'adapter': 'learned', 'name': 'LateFusion-HybridSwin-Learned', 'loss': 'focal'},
+        {'mode': 'scalogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal_weighted'},
+        {'mode': 'fusion', 'model': 'HybridSwinTransformerEarlyFusion', 'name': 'EarlyFusion-HybridSwin', 'loss': 'focal_weighted'},
+        
+
+        {'mode': 'phasogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal_weighted'},
+        {'mode': 'both', 'model': 'HybridSwinTransformerLateFusion', 'adapter': 'learned', 'name': 'LateFusion-HybridSwin-Learned', 'loss': 'focal_weighted'},
 
     ]
     
