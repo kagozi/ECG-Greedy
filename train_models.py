@@ -17,7 +17,11 @@ from sklearn.metrics import fbeta_score, roc_auc_score, f1_score, confusion_matr
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
-from models import CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG, SwinTransformerEarlyFusion, ViTLateFusion, EfficientNetLateFusion, SwinTransformerLateFusion
+from models import (CWT2DCNN, DualStreamCNN, ViTECG, 
+                    SwinTransformerECG, SwinTransformerEarlyFusion, 
+                    ViTLateFusion, EfficientNetLateFusion, 
+                    SwinTransformerLateFusion, HybridSwinTransformerECG
+                    ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion)
 
 # ============================================================================
 # CONFIGURATION
@@ -303,6 +307,12 @@ def train_model(config, metadata, device):
         model = ViTLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'EfficientNetLateFusion':
         model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'HybridSwinTransformerECG':
+        model = HybridSwinTransformerECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'HybridSwinTransformerEarlyFusion':
+        model = HybridSwinTransformerEarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'HybridSwinTransformerLateFusion':
+        model = HybridSwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     else:
         raise ValueError(f"Unknown model: {config['model']}")
 
@@ -457,13 +467,16 @@ def main():
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
-        {'mode': 'both', 'model': 'EfficientNetLateFusion', 'name': 'EfficientNetLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-
+        # {'mode': 'both', 'model': 'EfficientNetLateFusion', 'name': 'EfficientNetLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         
         # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
         # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-  
+         
+        # Hybrid Swin variants
+        {'mode': 'scalogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal'},
+        {'mode': 'fusion', 'model': 'HybridSwinTransformerEarlyFusion', 'name': 'EarlyFusion-HybridSwin', 'loss': 'focal'},
+        {'mode': 'both', 'model': 'HybridSwinTransformerLateFusion', 'adapter': 'learned', 'name': 'LateFusion-HybridSwin-Learned', 'loss': 'focal'},
 
     ]
     

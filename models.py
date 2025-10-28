@@ -581,3 +581,294 @@ class EfficientNetLateFusion(nn.Module):
         
         return output
 
+
+# SE Attention Block
+class SEBlock(nn.Module):
+    def __init__(self, channels, reduction=16):
+        super(SEBlock, self).__init__()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction),
+            nn.ReLU(),
+            nn.Linear(channels // reduction, channels),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        batch, channels, _, _ = x.size()
+        scale = self.global_avg_pool(x).view(batch, channels)
+        scale = self.fc(scale).view(batch, channels, 1, 1)
+        return x * scale
+
+# ============================================================================
+# SE BLOCK (needed for hybrid models)
+# ============================================================================
+
+class SEBlock(nn.Module):
+    """Squeeze-and-Excitation block for channel attention"""
+    
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        self.squeeze = nn.AdaptiveAvgPool2d(1)
+        self.excitation = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.squeeze(x).view(b, c)
+        y = self.excitation(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+# ============================================================================
+# 1. HYBRID SWIN TRANSFORMER ECG (Single Modality)
+# ============================================================================
+
+class HybridSwinTransformerECG(nn.Module):
+    """
+    Hybrid CNN-Swin Transformer for ECG classification.
+    CNN stem extracts local features before Swin processes global patterns.
+    Works with 12-channel inputs (scalogram OR phasogram).
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, 
+                 model_name='swin_base_patch4_window7_224', adapter_strategy='learned'):
+        super().__init__()
+        
+        # Channel adapter: 12 → 3
+        self.adapter = ChannelAdapter(strategy=adapter_strategy)
+        
+        # CNN stem for local feature extraction (maintains spatial dimensions)
+        self.conv_stem = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            SEBlock(128),
+            nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(3),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Load pretrained Swin Transformer
+        self.swin = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,  # Remove classifier
+            in_chans=3
+        )
+        
+        num_features = self.swin.num_features
+        
+        # Custom classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.GELU(),
+            nn.LayerNorm(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  HybridSwinTransformerECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, x):
+        # x: (B, 12, H, W) → (B, 3, H, W)
+        x = self.adapter(x)
+        
+        # CNN stem extracts local features
+        x = self.conv_stem(x)  # Still (B, 3, 224, 224)
+        
+        # Swin processes global patterns
+        features = self.swin(x)
+        
+        # Classification
+        output = self.classifier(features)
+        return output
+
+
+# ============================================================================
+# 2. HYBRID SWIN TRANSFORMER EARLY FUSION (Scalogram + Phasogram)
+# ============================================================================
+
+class HybridSwinTransformerEarlyFusion(nn.Module):
+    """
+    Hybrid CNN-Swin Transformer with early fusion.
+    Concatenates 12-channel scalogram + 12-channel phasogram = 24 channels,
+    then CNN stem processes combined features before Swin.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='swin_base_patch4_window7_224'):
+        super().__init__()
+        
+        # Adapter for 24 channels (12 scalo + 12 phaso) → 3 channels
+        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        
+        # CNN stem for local feature extraction
+        self.conv_stem = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            SEBlock(128),
+            nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(3),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Load pretrained Swin Transformer
+        self.swin = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.swin.num_features
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.GELU(),
+            nn.LayerNorm(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  HybridSwinTransformerEarlyFusion: {n_params/1e6:.1f}M parameters")
+    
+    def forward(self, x):
+        # x: (B, 24, H, W) from fusion dataset mode
+        x = self.adapter(x)  # (B, 3, H, W)
+        
+        # CNN stem extracts local features from fused representation
+        x = self.conv_stem(x)  # Still (B, 3, 224, 224)
+        
+        # Swin processes global patterns
+        features = self.swin(x)
+        
+        # Classification
+        output = self.classifier(features)
+        return output
+
+
+# ============================================================================
+# 3. HYBRID SWIN TRANSFORMER LATE FUSION (Dual Stream)
+# ============================================================================
+
+class HybridSwinTransformerLateFusion(nn.Module):
+    """
+    Hybrid CNN-Swin Transformer with late fusion.
+    Two separate hybrid branches (CNN stem + Swin) for scalogram and phasogram,
+    with feature-level fusion at the end.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='swin_base_patch4_window7_224', adapter_strategy='learned'):
+        super().__init__()
+        
+        # Two separate channel adapters
+        self.adapter_scalo = ChannelAdapter(strategy=adapter_strategy)
+        self.adapter_phaso = ChannelAdapter(strategy=adapter_strategy)
+        
+        # CNN stem for scalogram branch
+        self.conv_stem_scalo = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            SEBlock(128),
+            nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(3),
+            nn.ReLU(inplace=True)
+        )
+        
+        # CNN stem for phasogram branch
+        self.conv_stem_phaso = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            SEBlock(128),
+            nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(3),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Two separate Swin Transformer backbones
+        self.swin_scalogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        self.swin_phasogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.swin_scalogram.num_features
+        
+        # Fusion layer
+        self.fusion = nn.Sequential(
+            nn.Linear(num_features * 2, 1024),
+            nn.GELU(),
+            nn.LayerNorm(1024),
+            nn.Dropout(dropout)
+        )
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(1024, 512),
+            nn.GELU(),
+            nn.LayerNorm(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  HybridSwinTransformerLateFusion: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, scalogram, phasogram):
+        # scalogram: (B, 12, H, W)
+        # phasogram: (B, 12, H, W)
+        
+        # Adapt channels
+        scalo_3ch = self.adapter_scalo(scalogram)  # (B, 3, H, W)
+        phaso_3ch = self.adapter_phaso(phasogram)  # (B, 3, H, W)
+        
+        # Process through CNN stems
+        scalo_3ch = self.conv_stem_scalo(scalo_3ch)  # (B, 3, 224, 224)
+        phaso_3ch = self.conv_stem_phaso(phaso_3ch)  # (B, 3, 224, 224)
+        
+        # Extract features with Swin Transformers
+        features_scalo = self.swin_scalogram(scalo_3ch)
+        features_phaso = self.swin_phasogram(phaso_3ch)
+        
+        # Concatenate and fuse
+        combined_features = torch.cat([features_scalo, features_phaso], dim=1)
+        fused = self.fusion(combined_features)
+        
+        # Classification
+        output = self.classifier(fused)
+        return output
