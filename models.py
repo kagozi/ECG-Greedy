@@ -419,7 +419,7 @@ class ViTFusionECG(nn.Module):
         )
         
         n_params = sum(p.numel() for p in self.parameters())
-        print(f"  ViTECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+        print(f"  ViTFusionECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
     
     def forward(self, x):
         # x: (B, 12, H, W) → (B, 3, H, W)

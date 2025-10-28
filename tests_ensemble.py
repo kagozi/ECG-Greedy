@@ -15,9 +15,9 @@ from tqdm import tqdm
 
 # Import your models
 from models import (
-    CWT2DCNN, DualStreamCNN, ViTECG, SwinTransformerECG,
+    CWT2DCNN, DualStreamCNN, SwinTransformerECG,
     SwinTransformerEarlyFusion, SwinTransformerLateFusion,
-    EfficientNetECG, ViTFusionECG, EfficientNetFusionECG
+    EfficientNetFusionECG, ViTFusionECG, EfficientNetFusionECG
 )
 from benchmark import XResNet1d101, load_ptbxl_dataset, aggregate_diagnostic_labels, preprocess_signals, prepare_labels
 
@@ -104,15 +104,15 @@ def load_model_from_config(config, num_classes):
         num_ch = 24 if mode == 'fusion' else 12
         model = CWT2DCNN(num_classes=num_classes, num_channels=num_ch)
     elif model_type == 'ViTECG':
-        model = ViTECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
+        model = ViTFusionECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
     elif model_type == 'SwinTransformerECG':
         model = SwinTransformerECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
     elif model_type == 'SwinTransformerEarlyFusion':
         model = SwinTransformerEarlyFusion(num_classes=num_classes, pretrained=False)
     elif model_type == 'SwinTransformerLateFusion':
         model = SwinTransformerLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'EfficientNetECG':
-        model = EfficientNetECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
+    elif model_type == 'EfficientNetFusionECG':
+        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
     elif model_type == 'ViTFusionECG':
         model = ViTFusionECG(num_classes=num_classes, pretrained=False)
     elif model_type == 'EfficientNetFusionECG':
