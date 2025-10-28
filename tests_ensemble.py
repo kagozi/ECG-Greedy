@@ -649,6 +649,35 @@ def compute_all_metrics(y_true, y_pred, y_scores):
 # ============================================================================
 # MAIN EVALUATION PIPELINE
 # ============================================================================
+def fix_state_dict_keys(state_dict, model):
+    """
+    Fix mismatched keys between checkpoint and model.
+    Handles cases where adapter structure changed between training and loading.
+    """
+    model_keys = set(model.state_dict().keys())
+    checkpoint_keys = set(state_dict.keys())
+    
+    # Check for adapter key mismatches
+    new_state_dict = {}
+    
+    for key, value in state_dict.items():
+        new_key = key
+        
+        # Fix: adapter.weight -> adapter.adapter.weight
+        if 'adapter.weight' in key and 'adapter.adapter.weight' not in key:
+            new_key = key.replace('adapter.weight', 'adapter.adapter.weight')
+        # Fix: adapter.bias -> adapter.adapter.bias
+        elif 'adapter.bias' in key and 'adapter.adapter.bias' not in key:
+            new_key = key.replace('adapter.bias', 'adapter.adapter.bias')
+        # Fix: adapter.adapter.weight -> adapter.weight (reverse case)
+        elif 'adapter.adapter.weight' in key and 'adapter.weight' in model_keys:
+            new_key = key.replace('adapter.adapter.weight', 'adapter.weight')
+        elif 'adapter.adapter.bias' in key and 'adapter.bias' in model_keys:
+            new_key = key.replace('adapter.adapter.bias', 'adapter.bias')
+        
+        new_state_dict[new_key] = value
+    
+    return new_state_dict
 
 def evaluate_all_models(metadata, X_test_raw, y_test):
     """Evaluate all trained models and generate confusion matrices"""
@@ -695,7 +724,13 @@ def evaluate_all_models(metadata, X_test_raw, y_test):
         
         # Load weights
         state_dict = torch.load(baseline_checkpoint, map_location=DEVICE, weights_only=False)
-        model.load_state_dict(state_dict)
+                # Fix state dict if it's wrapped in a dictionary
+        if isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+            state_dict = state_dict['model_state_dict']
+        
+        # Fix keys and load
+        state_dict = fix_state_dict_keys(state_dict, model)
+        model.load_state_dict(state_dict, strict=False)
         model.eval()
         
         # Get predictions
