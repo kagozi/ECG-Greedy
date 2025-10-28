@@ -17,7 +17,13 @@ from tqdm import tqdm
 from models import (
     CWT2DCNN, DualStreamCNN, SwinTransformerECG,
     SwinTransformerEarlyFusion, SwinTransformerLateFusion,
-    EfficientNetFusionECG, ViTFusionECG, EfficientNetFusionECG
+    EfficientNetFusionECG, ViTFusionECG, EfficientNetFusionECG, 
+    EfficientNetEarlyFusion, 
+    EfficientNetLateFusion, 
+    ResNet50EarlyFusion, 
+    ResNet50LateFusion, 
+    ResNet50ECG,
+    
 )
 from benchmark import XResNet1d101, load_ptbxl_dataset, aggregate_diagnostic_labels, preprocess_signals, prepare_labels
 
@@ -117,6 +123,16 @@ def load_model_from_config(config, num_classes):
         model = ViTFusionECG(num_classes=num_classes, pretrained=False)
     elif model_type == 'EfficientNetFusionECG':
         model = EfficientNetFusionECG(num_classes=num_classes, pretrained=False)
+    elif model_type == 'EfficientNetEarlyFusion':
+        model = EfficientNetEarlyFusion(num_classes=num_classes, pretrained=False)
+    elif model_type == 'EfficientNetLateFusion':
+        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
+    elif model_type == 'ResNet50ECG':
+        model = ResNet50ECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
+    elif model_type == 'ResNet50EarlyFusion':
+        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=False)
+    elif model_type == 'ResNet50LateFusion':
+        model = ResNet50LateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
     elif model_type == 'XResNet1d101':
         # ResNet1D baseline
         model = XResNet1d101(
