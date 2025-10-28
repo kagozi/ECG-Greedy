@@ -342,7 +342,7 @@ class SwinTransformerLateFusion(nn.Module):
         return output
     
 
-class EfficientNetECG(nn.Module):
+class EfficientNetFusionECG(nn.Module):
     """
     EfficientNet for ECG - lighter and faster than transformers.
     Good for comparison and faster training.
@@ -376,7 +376,7 @@ class EfficientNetECG(nn.Module):
         )
         
         n_params = sum(p.numel() for p in self.parameters())
-        print(f"  EfficientNetECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+        print(f"  EfficientNetFusionECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
     
     def forward(self, x):
         # x: (B, 12, H, W) → (B, 3, H, W)
@@ -387,7 +387,7 @@ class EfficientNetECG(nn.Module):
     
     
 
-class ViTECG(nn.Module):
+class ViTFusionECG(nn.Module):
     """Vision Transformer for ECG classification with 12-channel input"""
     
     def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
