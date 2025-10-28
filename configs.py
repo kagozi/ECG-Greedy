@@ -19,7 +19,7 @@ configs = [
         # {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
         
         # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
-        # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
+        # {'mode': 'scalogram', 'model': 'EfficientNetFusionECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
          
         # Hybrid Swin variants
         {'mode': 'scalogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal_weighted'},
@@ -37,9 +37,9 @@ configs = [
         {'mode': 'phasogram', 'model': 'ResNet50ECG', 'adapter': 'learned', 'name': 'Phasogram-ResNet50-Learned', 'loss': 'focal_weighted'},
         
         ## EfficientNet variants
-        {'mode': 'scalogram', 'model': 'EfficientNetECG', 'adapter': 'learned', 'name': 'Scalogram-EfficientNet-Learned', 'loss': 'focal_weighted'},
+        {'mode': 'scalogram', 'model': 'EfficientNetFusionECG', 'adapter': 'learned', 'name': 'Scalogram-EfficientNet-Learned', 'loss': 'focal_weighted'},
         {'mode': 'fusion', 'model': 'EfficientNetEarlyFusion', 'adapter': 'learned', 'name': 'EarlyFusion-EfficientNet-Learned', 'loss': 'focal_weighted'},
         {'mode': 'both', 'model': 'EfficientNetLateFusion', 'adapter': 'learned', 'name': 'LateFusion-EfficientNet-Learned', 'loss': 'focal_weighted'},
-        {'mode': 'phasogram', 'model': 'EfficientNetECG', 'adapter': 'learned', 'name': 'Phasogram-EfficientNet-Learned', 'loss': 'focal_weighted'},
+        {'mode': 'phasogram', 'model': 'EfficientNetFusionECG', 'adapter': 'learned', 'name': 'Phasogram-EfficientNet-Learned', 'loss': 'focal_weighted'},
 
 ]
