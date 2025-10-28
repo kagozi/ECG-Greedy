@@ -157,6 +157,302 @@ def load_model_from_config(config, num_classes):
     
     return model.to(DEVICE)
 
+
+def load_model_checkpoint_safely(model, checkpoint_path, device):
+    """
+    Safely load model checkpoint with compatibility handling for structure mismatches
+    
+    Args:
+        model: PyTorch model instance
+        checkpoint_path: Path to checkpoint file
+        device: torch.device
+        
+    Returns:
+        bool: True if loaded successfully, False otherwise
+    """
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        state_dict = checkpoint.get('model_state_dict', checkpoint)
+        
+        # Try direct loading first
+        try:
+            model.load_state_dict(state_dict, strict=True)
+            return True
+        except RuntimeError as e:
+            error_msg = str(e)
+            
+            # Handle adapter key mismatch (adapter.weight vs adapter.adapter.weight)
+            if "adapter" in error_msg and ("Missing key" in error_msg or "Unexpected key" in error_msg):
+                print(f"  ⚠️  Adapter key mismatch detected, attempting to fix...")
+                
+                # Create a new state dict with corrected keys
+                new_state_dict = {}
+                model_keys = set(model.state_dict().keys())
+                
+                for key, value in state_dict.items():
+                    # Try to map old adapter keys to new structure
+                    if "adapter.weight" in key and "adapter.adapter.weight" not in key:
+                        # Old structure: adapter.weight -> New structure: adapter.adapter.weight
+                        new_key = key.replace("adapter.weight", "adapter.adapter.weight")
+                        if new_key in model_keys:
+                            new_state_dict[new_key] = value
+                            print(f"      Remapped: {key} -> {new_key}")
+                            continue
+                    
+                    # Try reverse mapping (if model expects old structure but checkpoint has new)
+                    if "adapter.adapter.weight" in key:
+                        old_key = key.replace("adapter.adapter.weight", "adapter.weight")
+                        if old_key in model_keys:
+                            new_state_dict[old_key] = value
+                            print(f"      Remapped: {key} -> {old_key}")
+                            continue
+                    
+                    # Keep key as-is if it matches
+                    if key in model_keys:
+                        new_state_dict[key] = value
+                
+                # Try loading with remapped keys
+                missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
+                
+                if missing_keys:
+                    print(f"  ⚠️  Missing keys after remapping: {missing_keys[:5]}{'...' if len(missing_keys) > 5 else ''}")
+                if unexpected_keys:
+                    print(f"  ⚠️  Unexpected keys after remapping: {unexpected_keys[:5]}{'...' if len(unexpected_keys) > 5 else ''}")
+                
+                # Check if critical keys are missing
+                critical_missing = [k for k in missing_keys if not k.startswith('adapter')]
+                if critical_missing:
+                    print(f"  ❌ Critical keys missing: {critical_missing[:3]}")
+                    return False
+                
+                print(f"  ✓ Loaded with remapped adapter keys")
+                return True
+            
+            # Handle other mismatches with non-strict loading
+            elif "Missing key" in error_msg or "Unexpected key" in error_msg:
+                print(f"  ⚠️  State dict mismatch, attempting non-strict loading...")
+                missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+                
+                # Check if too many keys are missing
+                if len(missing_keys) > len(model.state_dict()) * 0.1:  # More than 10% missing
+                    print(f"  ❌ Too many missing keys ({len(missing_keys)}), skipping model")
+                    return False
+                
+                if missing_keys:
+                    print(f"  ⚠️  Missing {len(missing_keys)} keys: {list(missing_keys)[:3]}...")
+                if unexpected_keys:
+                    print(f"  ⚠️  Unexpected {len(unexpected_keys)} keys: {list(unexpected_keys)[:3]}...")
+                
+                print(f"  ✓ Loaded with {len(missing_keys)} missing and {len(unexpected_keys)} unexpected keys")
+                return True
+            else:
+                raise
+    
+    except Exception as e:
+        print(f"  ❌ Failed to load checkpoint: {e}")
+        return False
+
+
+def evaluate_all_models(metadata, X_test_raw, y_test):
+    """Evaluate all trained models and generate confusion matrices"""
+    
+    print("\n[1/3] Loading all trained models...")
+    
+    all_model_results = {}
+    y_true = y_test
+    
+    # ========================================================================
+    # PART 1: Evaluate ResNet1D Baseline
+    # ========================================================================
+    
+    baseline_checkpoint = os.path.join(BASELINE_RESULTS_PATH, 'best_xresnet1d101.pth')
+    
+    if os.path.exists(baseline_checkpoint):
+        print(f"\n{'='*60}")
+        print(f"Evaluating: ResNet1D-Baseline")
+        print(f"{'='*60}")
+        
+        # Create dataset for raw signals
+        test_dataset_raw = ECGDataset(X_test_raw, y_test)
+        test_loader_raw = DataLoader(
+            test_dataset_raw, batch_size=BATCH_SIZE, shuffle=False,
+            num_workers=NUM_WORKERS, pin_memory=True
+        )
+        
+        # Load model
+        baseline_config = {
+            'model': 'XResNet1d101',
+            'mode': 'raw',
+            'stem_ks': 7,
+            'block_ks': 3,
+            'drop_rate': 0.2
+        }
+        
+        model = XResNet1d101(
+            input_channels=12,
+            num_classes=metadata['num_classes'],
+            stem_ks=7,
+            block_ks=3,
+            drop_rate=0.2
+        ).to(DEVICE)
+        
+        # Load weights safely
+        if load_model_checkpoint_safely(model, baseline_checkpoint, DEVICE):
+            model.eval()
+            
+            # Get predictions
+            all_preds = []
+            all_labels = []
+            
+            with torch.no_grad():
+                for x, y in tqdm(test_loader_raw, desc="Getting predictions", leave=False):
+                    x = x.to(DEVICE)
+                    outputs = model(x)
+                    probs = torch.sigmoid(outputs).cpu().numpy()
+                    all_preds.append(probs)
+                    all_labels.append(y.numpy())
+            
+            y_scores = np.vstack(all_preds)
+            y_true = np.vstack(all_labels)
+            
+            # Use 0.5 as default threshold
+            optimal_thresholds = np.ones(metadata['num_classes']) * 0.5
+            y_pred = apply_thresholds(y_scores, optimal_thresholds)
+            
+            # Compute metrics
+            metrics = compute_all_metrics(y_true, y_pred, y_scores)
+            
+            print(f"\nMetrics:")
+            print(f"  Macro AUC: {metrics['macro_auc']:.4f}")
+            print(f"  F1 Macro:  {metrics['f1_macro']:.4f}")
+            print(f"  F-beta:    {metrics['f_beta_macro']:.4f}")
+            
+            # Plot confusion matrices
+            print(f"\nGenerating confusion matrices...")
+            
+            plot_combined_confusion(
+                y_true, y_pred, metadata['classes'],
+                save_path=os.path.join(ENSEMBLE_PATH, "confusion_combined_ResNet1D-Baseline.png"),
+                title="Confusion Matrix"
+            )
+            
+            plot_confusion_matrix_multiclass(
+                y_true, y_pred, metadata['classes'],
+                save_path=os.path.join(ENSEMBLE_PATH, "confusion_multiclass_ResNet1D-Baseline.png"),
+                title="Multi-Class Confusion Matrix"
+            )
+            
+            # Store results
+            all_model_results['ResNet1D-Baseline'] = {
+                'metrics': metrics,
+                'y_scores': y_scores,
+                'y_pred': y_pred,
+                'thresholds': optimal_thresholds,
+                'config': baseline_config
+            }
+            
+            print(f"✓ ResNet1D-Baseline evaluated successfully")
+        else:
+            print(f"✗ Failed to load ResNet1D-Baseline")
+    else:
+        print(f"\n⚠️ ResNet1D baseline checkpoint not found at: {baseline_checkpoint}")
+    
+    # ========================================================================
+    # PART 2: Evaluate CWT-based Models
+    # ========================================================================
+    
+    # Find all CWT model result files
+    result_files = [f for f in os.listdir(RESULTS_PATH) if f.startswith('results_') and f.endswith('.json')]
+    
+    if not result_files:
+        print("⚠️ No CWT models found!")
+    else:
+        print(f"\nFound {len(result_files)} CWT models")
+    
+    for result_file in result_files:
+        model_name = result_file.replace('results_', '').replace('.json', '')
+        
+        print(f"\n{'='*60}")
+        print(f"Evaluating: {model_name}")
+        print(f"{'='*60}")
+        
+        # Load results and config
+        with open(os.path.join(RESULTS_PATH, result_file), 'r') as f:
+            results = json.load(f)
+        
+        config = results['config']
+        optimal_thresholds = np.array(results['optimal_thresholds'])
+        
+        # Load model
+        checkpoint_path = os.path.join(RESULTS_PATH, f"best_{model_name}.pth")
+        if not os.path.exists(checkpoint_path):
+            print(f"  ⚠️ Checkpoint not found: {checkpoint_path}")
+            continue
+        
+        try:
+            model = load_model_from_config(config, metadata['num_classes'])
+            
+            # Load checkpoint safely
+            if not load_model_checkpoint_safely(model, checkpoint_path, DEVICE):
+                print(f"  ✗ Skipping {model_name} due to loading errors")
+                continue
+            
+            model.eval()
+            
+            # Create dataset with appropriate mode for this model
+            dataset_mode = config['mode']
+            
+            test_dataset = CWTDataset(
+                os.path.join(WAVELETS_PATH, 'test_scalograms.npy'),
+                os.path.join(WAVELETS_PATH, 'test_phasograms.npy'),
+                y_test,
+                mode=dataset_mode
+            )
+            
+            test_loader = DataLoader(
+                test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                num_workers=NUM_WORKERS, pin_memory=True
+            )
+            
+            # Get predictions
+            y_scores, y_true = get_predictions(model, test_loader, config)
+            y_pred = apply_thresholds(y_scores, optimal_thresholds)
+            
+            # Compute metrics
+            metrics = compute_all_metrics(y_true, y_pred, y_scores)
+            
+            print(f"\nMetrics:")
+            print(f"  Macro AUC: {metrics['macro_auc']:.4f}")
+            print(f"  F1 Macro:  {metrics['f1_macro']:.4f}")
+            print(f"  F-beta:    {metrics['f_beta_macro']:.4f}")
+            
+            # Plot confusion matrices
+            print(f"\nGenerating confusion matrices...")
+            
+            plot_confusion_matrix_multiclass(
+                y_true, y_pred, metadata['classes'],
+                save_path=os.path.join(ENSEMBLE_PATH, f"confusion_multiclass_{model_name}.png"),
+                title=f"Multi-Class Confusion Matrix"
+            )
+            
+            # Store results
+            all_model_results[model_name] = {
+                'metrics': metrics,
+                'y_scores': y_scores,
+                'y_pred': y_pred,
+                'thresholds': optimal_thresholds,
+                'config': config
+            }
+            
+            print(f"✓ {model_name} evaluated successfully")
+            
+        except Exception as e:
+            print(f"  ❌ Error evaluating {model_name}: {e}")
+            print(f"  ✗ Skipping {model_name}")
+            continue
+    
+    return all_model_results, y_true
+
 # ============================================================================
 # PREDICTION FUNCTIONS
 # ============================================================================
