@@ -18,7 +18,7 @@ from models import (CWT2DCNN, DualStreamCNN, ViTFusionECG,
                     SwinTransformerECG, SwinTransformerEarlyFusion, 
                     ViTLateFusion, EfficientNetLateFusion, 
                     SwinTransformerLateFusion, HybridSwinTransformerECG ,HybridSwinTransformerEarlyFusion, 
-                    HybridSwinTransformerLateFusion, EfficientNetFusionECG,
+                    HybridSwinTransformerLateFusion,
                     EfficientNetEarlyFusion, EfficientNetLateFusion,
                     EfficientNetFusionECG, ResNet50EarlyFusion, 
                     ResNet50LateFusion,
@@ -130,14 +130,12 @@ def load_model_from_config(config, num_classes):
         model = HybridSwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
      # EfficientNet variants
     elif config['model'] == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'EfficientNetEarlyFusion':
         model = EfficientNetEarlyFusion(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'EfficientNetLateFusion':
         model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     # ResNet50 variants
-    elif config['model'] == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'ResNet50EarlyFusion':
         model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'ResNet50LateFusion':
