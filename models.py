@@ -872,3 +872,299 @@ class HybridSwinTransformerLateFusion(nn.Module):
         # Classification
         output = self.classifier(fused)
         return output
+    
+# ============================================================================
+# EFFICIENTNET - EARLY FUSION
+# ============================================================================
+
+class EfficientNetEarlyFusion(nn.Module):
+    """
+    EfficientNet with early fusion for scalogram + phasogram.
+    Concatenates 12-channel scalogram + 12-channel phasogram = 24 channels
+    Then adapts to 3 channels for pretrained backbone.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='efficientnet_b2'):
+        super().__init__()
+        
+        # Adapter for 24 channels (12 scalo + 12 phaso) → 3 channels
+        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        
+        # Load pretrained EfficientNet
+        self.backbone = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.backbone.num_features
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  EfficientNetEarlyFusion: {n_params/1e6:.1f}M parameters")
+    
+    def forward(self, x):
+        # x: (B, 24, H, W) from fusion dataset mode
+        x = self.adapter(x)  # (B, 3, H, W)
+        features = self.backbone(x)
+        output = self.classifier(features)
+        return output
+
+
+# ============================================================================
+# EFFICIENTNET - LATE FUSION (Dual Stream)
+# ============================================================================
+
+class EfficientNetLateFusion(nn.Module):
+    """
+    EfficientNet with late fusion.
+    Two separate backbones (one for scalogram, one for phasogram)
+    with feature-level fusion.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True,
+                 model_name='efficientnet_b2', adapter_strategy='learned'):
+        super().__init__()
+        
+        # Two separate channel adapters
+        self.adapter_scalo = ChannelAdapter(strategy=adapter_strategy)
+        self.adapter_phaso = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Two separate EfficientNet backbones
+        self.backbone_scalogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        self.backbone_phasogram = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.backbone_scalogram.num_features
+        
+        # Fusion layer
+        self.fusion = nn.Sequential(
+            nn.Linear(num_features * 2, 1024),
+            nn.ReLU(),
+            nn.BatchNorm1d(1024),
+            nn.Dropout(dropout)
+        )
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  EfficientNetLateFusion: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, scalogram, phasogram):
+        # scalogram: (B, 12, H, W)
+        # phasogram: (B, 12, H, W)
+        
+        # Adapt channels
+        scalo_3ch = self.adapter_scalo(scalogram)  # (B, 3, H, W)
+        phaso_3ch = self.adapter_phaso(phasogram)  # (B, 3, H, W)
+        
+        # Extract features separately
+        features_scalo = self.backbone_scalogram(scalo_3ch)
+        features_phaso = self.backbone_phasogram(phaso_3ch)
+        
+        # Concatenate and fuse
+        combined_features = torch.cat([features_scalo, features_phaso], dim=1)
+        fused = self.fusion(combined_features)
+        output = self.classifier(fused)
+        
+        return output
+
+
+# ============================================================================
+# RESNET50 - SINGLE MODALITY
+# ============================================================================
+
+class ResNet50ECG(nn.Module):
+    """
+    ResNet50 for ECG - robust CNN baseline.
+    Works with 12-channel inputs (scalogram OR phasogram).
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
+        super().__init__()
+        
+        # Channel adapter: 12 → 3
+        self.adapter = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Load pretrained ResNet50
+        self.backbone = timm.create_model(
+            'resnet50',
+            pretrained=pretrained,
+            num_classes=0,  # Remove classifier
+            in_chans=3
+        )
+        
+        num_features = self.backbone.num_features  # 2048 for ResNet50
+        
+        # Custom classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  ResNet50ECG: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, x):
+        # x: (B, 12, H, W) → (B, 3, H, W)
+        x = self.adapter(x)
+        features = self.backbone(x)
+        output = self.classifier(features)
+        return output
+
+
+# ============================================================================
+# RESNET50 - EARLY FUSION
+# ============================================================================
+
+class ResNet50EarlyFusion(nn.Module):
+    """
+    ResNet50 with early fusion for scalogram + phasogram.
+    Concatenates 12-channel scalogram + 12-channel phasogram = 24 channels
+    Then adapts to 3 channels for pretrained backbone.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True):
+        super().__init__()
+        
+        # Adapter for 24 channels (12 scalo + 12 phaso) → 3 channels
+        self.adapter = nn.Conv2d(24, 3, kernel_size=1, bias=False)
+        
+        # Load pretrained ResNet50
+        self.backbone = timm.create_model(
+            'resnet50',
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.backbone.num_features
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  ResNet50EarlyFusion: {n_params/1e6:.1f}M parameters")
+    
+    def forward(self, x):
+        # x: (B, 24, H, W) from fusion dataset mode
+        x = self.adapter(x)  # (B, 3, H, W)
+        features = self.backbone(x)
+        output = self.classifier(features)
+        return output
+
+
+# ============================================================================
+# RESNET50 - LATE FUSION (Dual Stream)
+# ============================================================================
+
+class ResNet50LateFusion(nn.Module):
+    """
+    ResNet50 with late fusion.
+    Two separate backbones (one for scalogram, one for phasogram)
+    with feature-level fusion.
+    """
+    
+    def __init__(self, num_classes=5, dropout=0.3, pretrained=True, adapter_strategy='learned'):
+        super().__init__()
+        
+        # Two separate channel adapters
+        self.adapter_scalo = ChannelAdapter(strategy=adapter_strategy)
+        self.adapter_phaso = ChannelAdapter(strategy=adapter_strategy)
+        
+        # Two separate ResNet50 backbones
+        self.backbone_scalogram = timm.create_model(
+            'resnet50',
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        self.backbone_phasogram = timm.create_model(
+            'resnet50',
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=3
+        )
+        
+        num_features = self.backbone_scalogram.num_features  # 2048
+        
+        # Fusion layer
+        self.fusion = nn.Sequential(
+            nn.Linear(num_features * 2, 1024),
+            nn.ReLU(),
+            nn.BatchNorm1d(1024),
+            nn.Dropout(dropout)
+        )
+        
+        # Classification head
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout / 2),
+            nn.Linear(512, num_classes)
+        )
+        
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"  ResNet50LateFusion: {n_params/1e6:.1f}M parameters (adapter={adapter_strategy})")
+    
+    def forward(self, scalogram, phasogram):
+        # scalogram: (B, 12, H, W)
+        # phasogram: (B, 12, H, W)
+        
+        # Adapt channels
+        scalo_3ch = self.adapter_scalo(scalogram)  # (B, 3, H, W)
+        phaso_3ch = self.adapter_phaso(phasogram)  # (B, 3, H, W)
+        
+        # Extract features separately
+        features_scalo = self.backbone_scalogram(scalo_3ch)
+        features_phaso = self.backbone_phasogram(phaso_3ch)
+        
+        # Concatenate and fuse
+        combined_features = torch.cat([features_scalo, features_phaso], dim=1)
+        fused = self.fusion(combined_features)
+        output = self.classifier(fused)
+        
+        return output

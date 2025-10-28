@@ -21,8 +21,10 @@ from models import (CWT2DCNN, DualStreamCNN, ViTECG,
                     SwinTransformerECG, SwinTransformerEarlyFusion, 
                     ViTLateFusion, EfficientNetLateFusion, 
                     SwinTransformerLateFusion, HybridSwinTransformerECG
-                    ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion, DistributionAwareFocalLoss)
-
+                    ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion, EfficientNetECG, EfficientNetEarlyFusion, EfficientNetLateFusion,
+                    ResNet50ECG, ResNet50EarlyFusion, ResNet50LateFusion)
+from focal_loss import FocalLoss, DistributionAwareFocalLoss
+from configs import configs
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -44,28 +46,6 @@ os.makedirs(RESULTS_PATH, exist_ok=True)
 # ============================================================================
 # DATASET CLASS (Memory-Efficient)
 # ============================================================================
-
-class FocalLoss(nn.Module):
-    """Focal Loss for class imbalance"""
-    
-    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-    
-    def forward(self, inputs, targets):
-        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-        pt = torch.exp(-bce_loss)
-        focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
-        
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
-
 class CWTDataset(Dataset):
     """
     Memory-efficient dataset that loads CWT data on-the-fly
@@ -234,8 +214,6 @@ def find_optimal_threshold(y_true, y_scores):
 # ============================================================================
 # MAIN TRAINING PIPELINE
 # ============================================================================
-
-        
         
 def train_model(config, metadata, device):
     """Train a single model configuration"""
@@ -305,14 +283,27 @@ def train_model(config, metadata, device):
         model = SwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'ViTLateFusion':
         model = ViTLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
-    elif config['model'] == 'EfficientNetLateFusion':
-        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'HybridSwinTransformerECG':
         model = HybridSwinTransformerECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'HybridSwinTransformerEarlyFusion':
         model = HybridSwinTransformerEarlyFusion(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'HybridSwinTransformerLateFusion':
         model = HybridSwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+     # EfficientNet variants
+    elif config['model'] == 'EfficientNetECG':
+        model = EfficientNetECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'EfficientNetEarlyFusion':
+        model = EfficientNetEarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'EfficientNetLateFusion':
+        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    # ResNet50 variants
+    elif config['model'] == 'ResNet50ECG':
+        model = ResNet50ECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50EarlyFusion':
+        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'ResNet50LateFusion':
+        model = ResNet50LateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    
     else:
         raise ValueError(f"Unknown model: {config['model']}")
 
@@ -502,40 +493,7 @@ def main():
     print(f"  Train: {metadata['train_size']} samples")
     print(f"  Val:   {metadata['val_size']} samples")
     print(f"  Test:  {metadata['test_size']} samples")
-    
-    # Define model configurations to train
-    configs = [
-        # {'mode': 'scalogram', 'model': 'CWT2DCNN', 'name': 'Scalogram-2DCNN-BCE', 'loss': 'bce'},
-        # {'mode': 'scalogram', 'model': 'CWT2DCNN', 'name': 'Scalogram-2DCNN-Focal', 'loss': 'focal'},
-        # {'mode': 'fusion', 'model': 'CWT2DCNN', 'name': 'Fusion-2DCNN-BCE', 'loss': 'bce'},
-        #  {'mode': 'fusion', 'model': 'CWT2DCNN', 'name': 'Fusion-2DCNN-Focal', 'loss': 'focal'},
-        # {'mode': 'both', 'model': 'DualStream', 'name': 'DualStream-CNN-BCE', 'loss': 'bce'},
-        # {'mode': 'both', 'model': 'DualStream', 'name': 'DualStream-CNN-Focal', 'loss': 'focal'},
-              
-
-        
-        # {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        # {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
-        # {'mode': 'fusion', 'model': 'SwinTransformerEarlyFusion', 'name': 'EarlyFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
-        # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
-        # {'mode': 'both', 'model': 'SwinTransformerLateFusion', 'name': 'LateFusion-Swin-Focal-Select', 'loss': 'focal', 'adapter': 'select'},
-        # {'mode': 'both', 'model': 'EfficientNetLateFusion', 'name': 'EfficientNetLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        # {'mode': 'both', 'model': 'ViTLateFusion', 'name': 'ViTLateFusion-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-        
-        # {'mode': 'scalogram', 'model': 'ViTECG', 'name': 'ViT-ECG-BCE-Learned', 'loss': 'bce', 'adapter': 'learned'},
-        # {'mode': 'scalogram', 'model': 'EfficientNetECG', 'name': 'EfficientNet-ECG-Focal-Learned', 'loss': 'focal', 'adapter': 'learned'},
-         
-        # Hybrid Swin variants
-        {'mode': 'scalogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal_weighted'},
-        {'mode': 'fusion', 'model': 'HybridSwinTransformerEarlyFusion', 'name': 'EarlyFusion-HybridSwin', 'loss': 'focal_weighted'},
-        
-
-        {'mode': 'phasogram', 'model': 'HybridSwinTransformerECG', 'adapter': 'learned', 'name': 'Scalogram-HybridSwin-Learned', 'loss': 'focal_weighted'},
-        {'mode': 'both', 'model': 'HybridSwinTransformerLateFusion', 'adapter': 'learned', 'name': 'LateFusion-HybridSwin-Learned', 'loss': 'focal_weighted'},
-
-    ]
-    
+      
     # Train all models
     print("\n[2/2] Training models...")
     all_results = {}
