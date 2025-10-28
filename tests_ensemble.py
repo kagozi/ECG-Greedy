@@ -176,6 +176,16 @@ def load_model_checkpoint_safely(model, checkpoint_path, device):
         
         # Try direct loading first
         try:
+            state_dict = checkpoint['model_state_dict']
+            new_state_dict = {}
+
+            for k, v in state_dict.items():
+                if k.startswith("adapter.weight"):
+                    # rename old key → expected new key
+                    new_state_dict["adapter.adapter.weight"] = v
+                else:
+                    new_state_dict[k] = v
+            state_dict = new_state_dict
             model.load_state_dict(state_dict, strict=True)
             return True
         except RuntimeError as e:
@@ -1139,10 +1149,6 @@ def main():
     print(f"  • Total models evaluated: {len(model_results)}")
     print(f"  • Ensemble combinations: {len(ensemble_results)}")
     print(f"  • ResNet1D baseline included: {'✓' if 'ResNet1D-Baseline' in model_results else '✗'}")
-
-if __name__ == '__main__':
-    main()
-
 
 if __name__ == '__main__':
     main()
