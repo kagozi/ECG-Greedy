@@ -22,7 +22,10 @@ from models import (CWT2DCNN, DualStreamCNN, ViTFusionECG,
                     ViTLateFusion, EfficientNetLateFusion, 
                     SwinTransformerLateFusion, HybridSwinTransformerECG
                     ,HybridSwinTransformerEarlyFusion, HybridSwinTransformerLateFusion, EfficientNetFusionECG, EfficientNetEarlyFusion, EfficientNetLateFusion,
-                    EfficientNetFusionECG, ResNet50EarlyFusion, ResNet50LateFusion)
+                    EfficientNetFusionECG, ResNet50EarlyFusion, 
+                    ResNet50LateFusion,
+                    ResNet50ECG
+                    )
 from focal_loss import FocalLoss, DistributionAwareFocalLoss
 from configs import configs
 # ============================================================================
@@ -299,6 +302,12 @@ def train_model(config, metadata, device):
     # ResNet50 variants
     elif config['model'] == 'EfficientNetFusionECG':
         model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50EarlyFusion':
+        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'ResNet50LateFusion':
+        model = ResNet50LateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50ECG':
+        model = ResNet50ECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif config['model'] == 'ResNet50EarlyFusion':
         model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
     elif config['model'] == 'ResNet50LateFusion':
