@@ -100,7 +100,10 @@ class ECGDataset(Dataset):
 def load_model_from_config(config, num_classes):
     """Load model architecture based on config"""
     mode = config['mode']
-    model_type = config['model']
+    # model_type = config['model']
+    raw_model_type = config['model']
+    # normalize: take prefix before any '-' or '_'
+    model_type = raw_model_type.split('-')[0].split('_')[0]
     adapter_strategy = config.get('adapter', 'learned')
     
     if model_type == 'DualStream':
