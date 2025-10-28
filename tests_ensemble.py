@@ -105,44 +105,49 @@ def load_model_from_config(config, num_classes):
     # normalize: take prefix before any '-' or '_'
     model_type = raw_model_type.split('-')[0].split('_')[0]
     adapter_strategy = config.get('adapter', 'learned')
-    
-    if model_type == 'DualStream':
+        
+    if config['model'] == 'DualStream':
         model = DualStreamCNN(num_classes=num_classes, num_channels=12)
-    elif model_type == 'CWT2DCNN':
+    elif config['model'] == 'CWT2DCNN':
+        # Adjust channels for fusion mode (24 channels = 12 scalo + 12 phaso)
         num_ch = 24 if mode == 'fusion' else 12
         model = CWT2DCNN(num_classes=num_classes, num_channels=num_ch)
-    elif model_type == 'ViTECG':
-        model = ViTFusionECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'SwinTransformerECG':
-        model = SwinTransformerECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'SwinTransformerEarlyFusion':
-        model = SwinTransformerEarlyFusion(num_classes=num_classes, pretrained=False)
-    elif model_type == 'SwinTransformerLateFusion':
-        model = SwinTransformerLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'ViTFusionECG':
-        model = ViTFusionECG(num_classes=num_classes, pretrained=False)
-    elif model_type == 'ViTLateFusion':
-        model = ViTLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'EfficientNetFusionECG':
-        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=False)
-    elif model_type == 'EfficientNetEarlyFusion':
-        model = EfficientNetEarlyFusion(num_classes=num_classes, pretrained=False)
-    elif model_type == 'EfficientNetLateFusion':
-        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'ResNet50ECG':
-        model = ResNet50ECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'ResNet50EarlyFusion':
-        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=False)
-    elif model_type == 'ResNet50LateFusion':
-        model = ResNet50LateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type =='HybridSwinTransformerECG':
-        model = HybridSwinTransformerECG(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
-    elif model_type == 'HybridSwinTransformerEarlyFusion':
-        model = HybridSwinTransformerEarlyFusion(num_classes=num_classes, pretrained=False)
-    elif model_type == 'HybridSwinTransformerLateFusion':
-        model = HybridSwinTransformerLateFusion(num_classes=num_classes, pretrained=False, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ViTFusionECG':
+        model = ViTFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'SwinTransformerECG':
+        model = SwinTransformerECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'SwinTransformerEarlyFusion':
+        model = SwinTransformerEarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'SwinTransformerLateFusion':
+        model = SwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ViTLateFusion':
+        model = ViTLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'HybridSwinTransformerECG':
+        model = HybridSwinTransformerECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'HybridSwinTransformerEarlyFusion':
+        model = HybridSwinTransformerEarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'HybridSwinTransformerLateFusion':
+        model = HybridSwinTransformerLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+     # EfficientNet variants
+    elif config['model'] == 'EfficientNetFusionECG':
+        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'EfficientNetEarlyFusion':
+        model = EfficientNetEarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'EfficientNetLateFusion':
+        model = EfficientNetLateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    # ResNet50 variants
+    elif config['model'] == 'EfficientNetFusionECG':
+        model = EfficientNetFusionECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50EarlyFusion':
+        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'ResNet50LateFusion':
+        model = ResNet50LateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50ECG':
+        model = ResNet50ECG(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
+    elif config['model'] == 'ResNet50EarlyFusion':
+        model = ResNet50EarlyFusion(num_classes=num_classes, pretrained=True)
+    elif config['model'] == 'ResNet50LateFusion':
+        model = ResNet50LateFusion(num_classes=num_classes, pretrained=True, adapter_strategy=adapter_strategy)
     elif model_type == 'XResNet1d101':
         # ResNet1D baseline
         model = XResNet1d101(
