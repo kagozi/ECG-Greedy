@@ -1,28 +1,29 @@
 flowchart LR
-    %% --- Inputs ---
+    %% --- Input Images ---
     R["<img src='https://raw.githubusercontent.com/kagozi/ECG-Greedy/main/rawsignal.png' width='70px' ><br>Raw ECGs<br>(12 × 1000)"]
     SCL["<img src='https://raw.githubusercontent.com/kagozi/ECG-Greedy/main/scalogram.png' width='70px' ><br>Scalograms<br>(224 × 224 × 12)"]
     PHS["<img src='https://raw.githubusercontent.com/kagozi/ECG-Greedy/main/phasogram.png' width='70px' ><br>Phasograms<br>(224 × 224 × 12)"]
 
-    %% --- Transform ---
+    %% --- Transform Arrows (optional, dotted for generation) ---
     R -.->|CWT| SCL
     R -.->|Phase| PHS
+    
+    %% --- Pretrained Pipeline ---
+    SCL --> A1["Adapter 1×1 Conv 12 → 3 ch"]
+    PHS --> A2["Adapter 1×1 Conv 12 → 3 ch"]
 
-    %% --- Early Fusion: Channel Concat ---
-    SCL --> EC["Early Concat<br>[SCL; PHS] ∈ ℝ^(B×24×224×224)"]
-    PHS --> EC
+    A1 --> E1["Pretrained Backbone→ fₛ ∈ ℝ^(B×d)"]
+    A2 --> E2["Pretrained Backbone→ fₚ ∈ ℝ^(B×d)"]
 
-    %% --- Adapter (24 → 3 ch) ---
-    EC --> A["Adapter 1×1 Conv<br>24 → 3 ch"]
+    E1 --> C["Concat [fₛ; fₚ] ∈ ℝ^(B×2d)"]
+    E2 --> C
 
-    %% --- Pretrained Backbone ---
-    A --> PT["Pretrained Backbone<br>(e.g., EfficientNet)<br>→ f ∈ ℝ^(B×d)"]
+    %% --- Condensed Fusion + Classifier ---
+    C --> FUS["Fusion MLP 2d → 1024 ReLU → BN → Drop"]
+    FUS --> CLS["Classifier 1024 → 512 → 5 ReLU → BN → Drop"]
 
-    %% --- Classifier ---
-    PT --> CLS["Classifier<br>d → 512 → 5<br>ReLU → BN → Drop"]
-
-    %% --- Output ---
-    subgraph Output ["Final Multilabel Classifier"]
+    %% --- 5-Neuron Output ---
+    subgraph Output_Layer ["Final Multilabel Classifier"]
         direction TB
         CLS --> O1(( ))
         CLS --> O2(( ))
@@ -31,7 +32,7 @@ flowchart LR
         CLS --> O5(( ))
     end
 
-    Output --> SIG["Sigmoid Focal Loss<br>(γ=2, α=0.25)"]
+    Output_Layer --> SIG["Sigmoid Focal Loss (γ=2, α=0.25)"]
 
     %% --- Styling ---
     classDef img fill:#ffffff,stroke:#cccccc,stroke-width:1px
@@ -41,6 +42,7 @@ flowchart LR
     classDef neuron fill:#c8e6c9,stroke:#2e7d32,stroke-width:1px
 
     class R,SCL,PHS img
-    class EC,A,PT mod
-    class CLS,SIG head
+    class A1,A2,E1,E2 mod
+    class C join
+    class FUS,CLS,SIG head
     class O1,O2,O3,O4,O5 neuron
