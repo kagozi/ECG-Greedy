@@ -41,14 +41,14 @@ Python 3.11.9
 git clone https://github.com/kagozi/MultiModal-ECG.git
 cd MultiModal-ECG
 
-(.venv) $ pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 ### Python virtual environment
 
 **Create** a virtual environment:
 
 ```bash
-(.venv) $ python3 -m venv .venv
+python3 -m venv .venv
 ```
 
 `.venv` is the name of the folder that would contain the virtual environment.
@@ -56,12 +56,12 @@ cd MultiModal-ECG
 **Activate** the virtual environment:
 
 ```bash
-(.venv) $ source .venv/bin/activate
+source .venv/bin/activate
 ```
 
 **Windows**
 ```bash
-(.venv) $ source .venv/Scripts/activate
+source .venv/Scripts/activate
 ```
 ## Quick Start
 
@@ -71,11 +71,11 @@ cd MultiModal-ECG
 ## Download the PTBXL dataset to a preferred directory: https://physionet.org/content/ptb-xl/get-zip/1.0.3/
 # Run full pipeline: preprocess → train → evaluate → ensemble
 ```bash
-(.venv) $ python3 load_and_standardize.py # creates standardized raw signal representations
-(.venv) $ python3 generate_cwt.py # creates Wavelet representations (Phasogram and Scalograms)
-(.venv) $ python3 benchmark.py # Trains XResNet1d101 on raw signals
-(.venv) $ python3 train_models.py # Trains CWT based models on Phasogram and Scalograms
-(.venv) $ python3 tests_ensemble.py # Run tests, generate confusion matrices, and evaluate different ensembling strategies
+python3 load_and_standardize.py # creates standardized raw signal representations
+python3 generate_cwt.py # creates Wavelet representations (Phasogram and Scalograms)
+python3 benchmark.py # Trains XResNet1d101 on raw signals
+python3 train_models.py # Trains CWT based models on Phasogram and Scalograms
+python3 tests_ensemble.py # Run tests, generate confusion matrices, and evaluate different ensembling strategies
 ```
 
 
