@@ -63,13 +63,14 @@ source .venv/bin/activate
 ```bash
 source .venv/Scripts/activate
 ```
-## Quick Start
-
+# Quick Start
+## Download the PTBXL dataset to a preferred directory: 
 ```bash
+wget https://physionet.org/content/ptb-xl/get-zip/1.0.3/
+```
 
-# Download PTB-XL (auto)
-## Download the PTBXL dataset to a preferred directory: https://physionet.org/content/ptb-xl/get-zip/1.0.3/
-# Run full pipeline: preprocess → train → evaluate → ensemble
+## Run full pipeline: preprocess → train → evaluate → ensemble
+
 ```bash
 python3 load_and_standardize.py # creates standardized raw signal representations
 python3 generate_cwt.py # creates Wavelet representations (Phasogram and Scalograms)
