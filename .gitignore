@@ -1,4 +1,5 @@
 .ecg
+.venv/*
 .ecg/*
 datasets/
 datasets/*
