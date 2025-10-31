@@ -6,7 +6,7 @@
 
 > **SOTA ensemble AUC 0.9233** on **PTB-XL Super-Diagnostic Task** using **early fusion of scalograms + phasograms + raw signals**.
 
-This repository implements the **multi-representation ECG classification framework** from our **ISBI 2025** paper, combining:
+This repository implements the **multi-representation ECG classification framework** from combining:
 - **Time-domain**: XResNet1d101 (raw ECG)
 - **Time-frequency**: CWT → **Scalograms**
 - **Phase-domain**: CWT → **Phasograms**
