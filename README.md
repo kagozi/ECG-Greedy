@@ -74,7 +74,8 @@ cd MultiModal-ECG
 (.venv) $ python3 load_and_standardize.py # creates standardized raw signal representations
 (.venv) $ python3 generate_cwt.py # creates Wavelet representations (Phasogram and Scalograms)
 (.venv) $ python3 benchmark.py # Trains XResNet1d101 on raw signals
-(.venv) $ python3 benchmark.py # Trains XResNet1d101 on raw signals
+(.venv) $ python3 train_models.py # Trains CWT based models on Phasogram and Scalograms
+(.venv) $ python3 tests_ensemble.py # Run tests, generate confusion matrices, and evaluate different ensembling strategies
 ```
 
 
